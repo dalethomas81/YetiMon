@@ -19,64 +19,46 @@
   DaleThomas@me.com
 
 */
+/*************Board settings************
 
-// https://randomnerdtutorials.com/esp32-wi-fi-manager-asyncwebserver/
-// https://learn.adafruit.com/adafruit-huzzah32-esp32-feather
+    NodeMCU:
+    "board": "esp8266:esp8266:nodemcuv2",
+    "configuration": "xtal=160,vt=flash,exception=legacy,ssl=all,eesz=4M1M,led=2,ip=lm2f,dbg=Disabled,lvl=None____,wipe=none,baud=115200",
 
-const char version[] = __DATE__ " " __TIME__; 
+*****************************************/
 
-#include <Arduino.h>
-#include <WiFi.h>
-#include <ESPAsyncWebServer.h>
-#include <AsyncTCP.h>
-#include "SPIFFS.h"
+#include <ArduinoJson.h>
+#include "LittleFS.h"             // need the upload tool here https://github.com/earlephilhower/arduino-esp8266littlefs-plugin
+#include <ESPAsyncWebServer.h>    // https://github.com/me-no-dev/ESPAsyncWebServer
+#include <WebSocketsServer.h>     // https://github.com/Links2004/arduinoWebSockets
+#include <ESPAsyncWiFiManager.h>  // https://github.com/alanswx/ESPAsyncWiFiManager
+#include <WebSocketsClient.h>
+#include <ArduinoOTA.h>
+#include <StreamString.h>
 
-// Create AsyncWebServer object on port 80
-AsyncWebServer server(80);
+/* global defines */
+#define CONST_DEVICE_ID           "ESP-"
+#define WIFI_LISTENING_PORT       80
+#define SERIAL_BAUD_RATE          115200
 
-// Search for parameter in HTTP POST request
-const char* PARAM_INPUT_1 = "ssid";
-const char* PARAM_INPUT_2 = "pass";
-const char* PARAM_INPUT_3 = "ip";
-const char* PARAM_INPUT_4 = "gateway";
-
-
-//Variables to save values from HTML form
-String ssid;
-String pass;
-String ip;
-String gateway;
-
-// File paths to save input values permanently
-const char* ssidPath = "/ssid.txt";
-const char* passPath = "/pass.txt";
-const char* ipPath = "/ip.txt";
-const char* gatewayPath = "/gateway.txt";
-
-IPAddress localIP;
-//IPAddress localIP(192, 168, 1, 200); // hardcoded
-
-// Set your Gateway IP address
-IPAddress localGateway;
-//IPAddress localGateway(192, 168, 1, 1); //hardcoded
-IPAddress subnet(255, 255, 0, 0);
-
-// Timer variables
-unsigned long previousMillis = 0;
-const long interval = 10000;  // interval to wait for Wi-Fi connection (milliseconds)
-
-// Set LED GPIO
-const int ledPin = 13;
-// Stores LED state
-String ledState;
+/* global variables */
+const char version[] = "build "  __DATE__ " " __TIME__; 
+String BUILD_DATE(version);
+String DEVICE_ID(CONST_DEVICE_ID);
+int BUTTON_STATE;                     // the current reading from the input pin
+int BUTTON_STATE_LAST = HIGH;         // the previous reading from the input pin
+unsigned long lastDebounceTime = 0;   // the last time the output pin was toggled
+unsigned long debounceDelay = 50;     // the debounce time; increase if the output flickers
 
 
 
-const int analogInPin = A2;
+
+
+const int analogInPin = A0;
 int sensorValue = 0;
 float voltageValue = 0.0;
-const float upperLimit = 11.00;
-const float lowerLimit = 10.28; // 10.41v is about 15% | 10.28v is 10%
+const float upperLimit = 11.40; // charging - 11.10v is 10% | 11.21v is 29% | 11.40v is 41%
+const float lowerLimit = 10.40; // discharging - 10.41v is about 15% | 10.28v is 10%
 // note: we see about 300mV increase with 600w power supply on.
 
 #define AVG_VOLTAGE_SIZE 100
@@ -85,8 +67,8 @@ int voltageArrayIndex = 0;
 float totalVoltage = 0.0;
 float averageVoltage = 0.0;
 
-const int outputPin1 =  15;
-int outputPin1State = LOW;
+//const int outputPin1 =  15; // Can only come from ADC#1 if using Wifi - A2,A3,A4,32,33
+//int outputPin1State = LOW;
 
 const long limitDelay = 60000; // how long to be under/over the limits
 unsigned long previousLimitMillis = 0;
@@ -94,211 +76,546 @@ unsigned long previousLimitMillis = 0;
 const long sampleInterval = 100;
 unsigned long previousSampleMillis = 0;
 
-const long printInterval = 1000;
+const long printInterval = 2000;
 unsigned long previousPrintMillis = 0;
 
 
 
-// Initialize SPIFFS
-void initSPIFFS() {
-  if (!SPIFFS.begin(true)) {
-    Serial.println("An error has occurred while mounting SPIFFS");
+
+
+
+
+/* web server */
+AsyncWebServer server(WIFI_LISTENING_PORT);
+WebSocketsServer webSocket_Server = WebSocketsServer(WIFI_LISTENING_PORT+1);
+WebSocketsClient webSocket_Client;
+
+/* wifi */
+DNSServer dns;
+char ws_server_ip[16] = "192.168.1.1";
+char ws_server_port[6] = "81";
+char ws_server_url[10] = "/";
+bool shouldSaveConfig = false;
+void checkWifi() {
+  if ((WiFi.status() != WL_CONNECTED) || (WiFi.localIP().toString() == "0.0.0.0")) { 
+    //Serial.println("Reconnecting to Wifi");
+    WiFi.reconnect();
+    //connectWifi(0);
   }
-  Serial.println("SPIFFS mounted successfully");
 }
+void saveConfigCallback () {
+  //Serial.println("Should save config");
+  shouldSaveConfig = true;
+}
+void setupWifiManager() {   
+  // The extra parameters to be configured (can be either global or just in the setup)
+  // After connecting, parameter.getValue() will get you the configured value
+  // id/name placeholder/prompt default length
+  AsyncWiFiManagerParameter custom_ws_server_ip("server", "ws server ip", ws_server_ip, 16);
+  AsyncWiFiManagerParameter custom_ws_server_port("port", "ws server port", ws_server_port, 6);
+  AsyncWiFiManagerParameter custom_ws_server_url("url", "ws server url", ws_server_url, 10);
+  // Local intialization. Once its business is done, there is no need to keep it around
+  AsyncWiFiManager wifiManager(&server,&dns);
+  //set config save notify callback
+  wifiManager.setSaveConfigCallback(saveConfigCallback);
+  //add all your parameters here
+  wifiManager.addParameter(&custom_ws_server_ip);
+  wifiManager.addParameter(&custom_ws_server_port);
+  wifiManager.addParameter(&custom_ws_server_url);
 
-// Read File from SPIFFS
-String readFile(fs::FS &fs, const char * path){
-  Serial.printf("Reading file: %s\r\n", path);
+  //reset settings - for testing
+  //wifiManager.resetSettings();
 
-  File file = fs.open(path);
-  if(!file || file.isDirectory()){
-    Serial.println("- failed to open file for reading");
-    return String();
-  }
+  //set minimum quality of signal so it ignores AP's under that quality
+  //defaults to 8%
+  wifiManager.setMinimumSignalQuality();
   
-  String fileContent;
-  while(file.available()){
-    fileContent = file.readStringUntil('\n');
-    break;     
+  // set custom ip for portal
+  //wifiManager.setAPConfig(IPAddress(10,0,1,1), IPAddress(10,0,1,1), IPAddress(255,255,255,0));
+
+  wifiManager.autoConnect(DEVICE_ID.c_str());
+
+  //read updated parameters
+  strcpy(ws_server_ip, custom_ws_server_ip.getValue());
+  strcpy(ws_server_port, custom_ws_server_port.getValue());
+  strcpy(ws_server_url, custom_ws_server_url.getValue()); 
+  
+  //save the custom parameters to FS
+  if (shouldSaveConfig) {
+    saveConfig();
   }
-  return fileContent;
+  //WiFi.mode(WIFI_STA);
+  //WiFi.begin();
+  //WiFi.setAutoReconnect(true);
+  //WiFi.persistent(true);
+}
+void handleEraseConfig() {
+    Serial.println("Erasing configuration and restarting.");
+    ESP.eraseConfig();
+    ESP.reset();
 }
 
-// Write file to SPIFFS
-void writeFile(fs::FS &fs, const char * path, const char * message){
-  Serial.printf("Writing file: %s\r\n", path);
+/* ota */
+//#define OTA_PASSWORD    "ProFiBus@12"
+bool OtaInProgress = false;
+int progress_last = 0;
+void setupOTA(){
+  // Port defaults to 8266
+  // ArduinoOTA.setPort(8266);
+  // Hostname defaults to esp8266-[ChipID]
+  ArduinoOTA.setHostname(DEVICE_ID.c_str());
+  // No authentication by default
+  //ArduinoOTA.setPassword((const char *)OTA_PASSWORD); // using password isnt supported in vscode...yet
+  ArduinoOTA.onStart([]() {
+    OtaInProgress = true;
+    webSocket_Server.onEvent(NULL);
+    webSocket_Client.onEvent(NULL);
+    LittleFS.end();
+    Serial.println("Start");
+  });
+  ArduinoOTA.onEnd([]() {
+    OtaInProgress = false;
+    Serial.println("\nEnd");
+    ESP.restart();
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    if (progress != progress_last) {
+      progress_last = progress;
+      Serial.printf("Progress: %u%%\r\n", (progress / (total / 100)));
+    }
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    OtaInProgress = false;
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed. Firewall issue?");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+    else if (error == OTA_END_ERROR) Serial.println("End Failed");
+  });
+  ArduinoOTA.begin();
+}
 
-  File file = fs.open(path, FILE_WRITE);
-  if(!file){
-    Serial.println("- failed to open file for writing");
-    return;
-  }
-  if(file.print(message)){
-    Serial.println("- file written");
-  } else {
-    Serial.println("- frite failed");
+/* utility */
+#define HEARTBEAT_TIME  1000
+#define ERASE_CONFIG_TIME 10000
+uint8_t HEARTBEAT_VALUE;
+bool HeartbeatOn = false;
+unsigned long timer_heartbeat;
+unsigned long timer_eraseConfig;
+void handleHeartbeat(){
+  if (millis() - timer_heartbeat > HEARTBEAT_TIME ){
+    timer_heartbeat = millis();
+    //broadcastUpdates(); // send out websockets updates
+    if (HEARTBEAT_VALUE>=100) {
+      HEARTBEAT_VALUE = 0;
+    } else {
+      HEARTBEAT_VALUE = HEARTBEAT_VALUE + 1;
+    }
+    if (HeartbeatOn) {
+      HeartbeatOn = false;
+      //Serial.println("Heartbeat Off");
+    } else {
+      HeartbeatOn = true;
+      //Serial.println("Heartbeat On");
+    }
   }
 }
 
-// Initialize WiFi
-bool initWiFi() {
-  if(ssid=="" || ip==""){
-    Serial.println("Undefined SSID or IP address.");
-    return false;
+/* flash */
+void initLittleFS() {
+
+  Serial.println(F("Inizializing FS..."));
+  if (LittleFS.begin()){
+      Serial.println(F("done."));
+  }else{
+      Serial.println(F("fail."));
   }
 
-  WiFi.mode(WIFI_STA);
-  localIP.fromString(ip.c_str());
-  localGateway.fromString(gateway.c_str());
+  // // To format all space in LittleFS
+  //  //LittleFS.format();
 
+  // // Get all information of your LittleFS
+  // FSInfo fs_info;
+  // LittleFS.info(fs_info);
 
-  if (!WiFi.config(localIP, localGateway, subnet)){
-    Serial.println("STA Failed to configure");
-    return false;
+  // Serial.println("File system info.");
+
+  // Serial.print("Total space:      ");
+  // Serial.print(fs_info.totalBytes);
+  // Serial.println("byte");
+
+  // Serial.print("Total space used: ");
+  // Serial.print(fs_info.usedBytes);
+  // Serial.println("byte");
+
+  // Serial.print("Block size:       ");
+  // Serial.print(fs_info.blockSize);
+  // Serial.println("byte");
+
+  // Serial.print("Page size:        ");
+  // Serial.print(fs_info.totalBytes);
+  // Serial.println("byte");
+
+  // Serial.print("Max open files:   ");
+  // Serial.println(fs_info.maxOpenFiles);
+
+  // Serial.print("Max path length:  ");
+  // Serial.println(fs_info.maxPathLength);
+
+  // Serial.println();
+
+  // // Open dir folder
+  // Dir dir = LittleFS.openDir("/");
+  // // Cycle all the content
+  // while (dir.next()) {
+  //     // get filename
+  //     Serial.print(dir.fileName());
+  //     Serial.print(" - ");
+  //     // If element have a size display It else write 0
+  //     if(dir.fileSize()) {
+  //         File f = dir.openFile("r");
+  //         Serial.println(f.size());
+  //         f.close();
+  //     }else{
+  //         Serial.println("0");
+  //     }
+  // }
+}
+
+/* webserver */
+void setupWebserver() {
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){ // https://github.com/me-no-dev/ESPAsyncWebServer
+    request->send(LittleFS, "/MAIN.html");
+  });
+  server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(LittleFS, "/favicon.ico");
+  });
+  server.on("/apple-touch-icon.png", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(LittleFS, "/apple-touch-icon.png");
+  });
+  server.on("/favicon-16x16.png", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(LittleFS, "/favicon-16x16.png");
+  });
+  server.on("/apple-touch-icon.png", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(LittleFS, "/apple-touch-icon.png");
+  });
+  server.on("/favicon-32x32.png", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(LittleFS, "/favicon-32x32.png");
+  });
+  server.on("/favicon-16x16.png", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(LittleFS, "/favicon-16x16.png");
+  });
+  server.on("/site.webmanifest", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(LittleFS, "/site.webmanifest");
+  });
+  server.begin();
+}
+
+/* i/o */
+#define GPIO_13_LED               D4 // D4 is LED on nodemcu
+#define GPIO_0_BUTTON             D3 // D3 is flash button on nodemcu
+#define GPIO_12_RELAY             D0
+int RELAY_STATE = LOW;         // the current state of the output pin
+void setupPins() {
+  pinMode(GPIO_13_LED, OUTPUT);
+  digitalWrite(GPIO_13_LED, HIGH);
+  
+  pinMode(GPIO_12_RELAY, OUTPUT);
+  digitalWrite(GPIO_12_RELAY, HIGH);
+  
+  pinMode(GPIO_0_BUTTON, INPUT_PULLUP);
+}
+void handleIO() {
+  // read the state of the switch into a local variable:
+  int reading = digitalRead(GPIO_0_BUTTON);
+
+  // if button is held down for the alloted time the config portal will start
+  if (reading > 0) { // keep resetting timer until pressed
+    timer_eraseConfig = millis();
   }
-  WiFi.begin(ssid.c_str(), pass.c_str());
-  Serial.println("Connecting to WiFi...");
+  if (millis() - timer_eraseConfig > ERASE_CONFIG_TIME) {
+    handleEraseConfig();
+  }
 
-  unsigned long currentMillis = millis();
-  previousMillis = currentMillis;
+  // check to see if you just pressed the button
+  // (i.e. the input went from LOW to HIGH), and you've waited long enough
+  // since the last press to ignore any noise:
 
-  while(WiFi.status() != WL_CONNECTED) {
-    currentMillis = millis();
-    if (currentMillis - previousMillis >= interval) {
-      Serial.println("Failed to connect.");
-      return false;
+  // If the switch changed, due to noise or pressing:
+  if (reading != BUTTON_STATE_LAST) {
+    // reset the debouncing timer
+    lastDebounceTime = millis();
+  }
+
+  if ((millis() - lastDebounceTime) > debounceDelay) {
+    // whatever the reading is at, it's been there for longer than the debounce
+    // delay, so take it as the actual current state:
+
+    // if the button state has changed:
+    if (reading != BUTTON_STATE) {
+      BUTTON_STATE = reading;
+
+      // only toggle the LED if the new button state is HIGH
+      if (BUTTON_STATE == HIGH) {
+        RELAY_STATE = !RELAY_STATE;
+      }
+
+      broadcastUpdates(); // send out websockets updates
+
     }
   }
 
-  Serial.println(WiFi.localIP());
+  // set the LED:
+  digitalWrite(GPIO_13_LED, !RELAY_STATE);
+  digitalWrite(GPIO_12_RELAY, RELAY_STATE);
+
+  // save the reading. Next time through the loop, it'll be the BUTTON_STATE_LAST:
+  BUTTON_STATE_LAST = reading;
+}
+
+/* websockets */
+#define PAYLOAD_SIZE_IN 128
+#define PAYLOAD_SIZE_OUT 200
+void parseWebSocketMessage(JsonDocument& jsonBuffer); // need prototype because complex argument and arduino gets confused
+void setupWebsocket() {
+  webSocket_Server.begin();
+  webSocket_Server.onEvent(webSocketEvent_Server);
+  
+  webSocket_Client.begin(ws_server_ip, atoi(ws_server_port), ws_server_url); // server address, port and URL
+  webSocket_Client.onEvent(webSocketEvent_Client);
+  //webSocket_Client.setAuthorization("user", "Password");
+  webSocket_Client.setReconnectInterval(5000);
+  // start heartbeat (optional)
+  // ping server every 15000 ms
+  // expect pong from server within 3000 ms
+  // consider connection disconnected if pong is not received 2 times
+  //webSocket_Client.enableHeartbeat(15000, 3000, 2);
+}
+void broadcastUpdates() {
+  /*
+  {
+  "topic":"status",
+    "data": {
+      "DEVICE_ID": "ESP-xxxxxx",
+      "HEARTBEAT_VALUE": 100,
+      "BUTTON_STATE": true,
+      "RELAY_STATE": true,
+    }
+  }
+  */
+  DynamicJsonDocument  jsonBuffer(PAYLOAD_SIZE_OUT); // https://arduinojson.org/v6/assistant/
+
+  StreamString payload;
+  
+  jsonBuffer["topic"] = "status";
+  jsonBuffer["data"]["device_id"] = DEVICE_ID.c_str();
+  jsonBuffer["data"]["device_addr"] = WiFi.localIP().toString(); // causing boot loop
+  jsonBuffer["data"]["device_build"] = BUILD_DATE.c_str();
+  jsonBuffer["data"]["heartbeat_value"] = HEARTBEAT_VALUE; 
+
+  jsonBuffer["data"]["button_state"] = (bool)!BUTTON_STATE; // when button is pressed its 0 so negate
+  jsonBuffer["data"]["relay_state"] = (bool)RELAY_STATE;
+
+  serializeJson(jsonBuffer,payload);
+
+  webSocket_Server.broadcastTXT(payload);
+  webSocket_Client.sendTXT(payload);
+}
+void webSocketEvent_Client(WStype_t type, uint8_t * payload, size_t length) { 
+  /*
+    type is the response type:
+    0 – WStype_ERROR
+    1 – WStype_DISCONNECTED
+    2 – WStype_CONNECTED
+    3 – WStype_TEXT
+    4 – WStype_BIN
+    5 – WStype_FRAGMENT_TEXT_START
+    6 – WStype_FRAGMENT_BIN_START
+    7 – WStype_FRAGMENT
+    8 – WStype_FRAGMENT_FIN
+    9 – WStype_PING
+    10- WStype_PONG - reply from ping
+  */
+  // payload - the data (note this is a pointer)
+  if(type == WStype_CONNECTED) {
+      broadcastUpdates();
+  }
+  if(type == WStype_TEXT)
+  {   
+    DynamicJsonDocument jsonBuffer(PAYLOAD_SIZE_IN);
+    deserializeJson(jsonBuffer, payload);
+    const char* device_id = jsonBuffer["device_id"];
+    if((strcmp(device_id, DEVICE_ID.c_str()) == 0) || (strcmp(device_id, "all") == 0)) { 
+      parseWebSocketMessage(jsonBuffer);
+    }
+  }  
+    else  // event is not TEXT. Display the details in the serial monitor
+  {
+    Serial.print("WStype = ");   Serial.println(type);  
+    Serial.print("WS payload = ");
+    // since payload is a pointer we need to type cast to char
+    for(int i = 0; i < length; i++) { Serial.print((char) payload[i]); }
+    Serial.println();
+  } 
+}
+void webSocketEvent_Server(byte num, WStype_t type, uint8_t * payload, size_t length) {
+  /*
+    type is the response type:
+    0 – WStype_ERROR
+    1 – WStype_DISCONNECTED
+    2 – WStype_CONNECTED
+    3 – WStype_TEXT
+    4 – WStype_BIN
+    5 – WStype_FRAGMENT_TEXT_START
+    6 – WStype_FRAGMENT_BIN_START
+    7 – WStype_FRAGMENT
+    8 – WStype_FRAGMENT_FIN
+    9 – WStype_PING
+    10- WStype_PONG - reply from ping
+  */
+  // payload - the data (note this is a pointer)
+  if(type == WStype_CONNECTED) {
+      broadcastUpdates();
+  }
+  if(type == WStype_TEXT)
+  {   
+    DynamicJsonDocument jsonBuffer(PAYLOAD_SIZE_IN);
+    deserializeJson(jsonBuffer, payload);
+    parseWebSocketMessage(jsonBuffer);
+  }  
+    else  // event is not TEXT. Display the details in the serial monitor
+  {
+    Serial.print("WStype = ");   Serial.println(type);  
+    Serial.print("WS payload = ");
+    // since payload is a pointer we need to type cast to char
+    for(int i = 0; i < length; i++) { Serial.print((char) payload[i]); }
+    Serial.println();
+  } 
+}
+void parseWebSocketMessage(JsonDocument& jsonBuffer) {
+  const char* topic = jsonBuffer["topic"];
+  if(strcmp(topic, "command") == 0) {
+    const char* child_id = jsonBuffer["child"]["id"];
+    const char* child_state = jsonBuffer["child"]["state"];
+      if(strcmp(child_id, "relay") == 0) {
+        if(strcmp(child_state, "true") == 0) {
+          RELAY_STATE = true;
+        }
+        if(strcmp(child_state, "false") == 0) {
+          RELAY_STATE = false;
+        }
+      }
+    broadcastUpdates();
+  }
+  if(strcmp(topic, "status") == 0) {
+    broadcastUpdates();
+  }
+}
+
+/* configuration file */
+bool loadConfig() {
+  Serial.println("loading config");
+  File configFile = LittleFS.open("/config.json", "r");
+  if (!configFile) {
+    Serial.println("Failed to open config file");
+    return false;
+  }
+
+  size_t size = configFile.size();
+  if (size > 1024) {
+    //Serial.println("Config file size is too large");
+    return false;
+  }
+
+  // Allocate a buffer to store contents of the file.
+  std::unique_ptr<char[]> buf(new char[size]);
+
+  // We don't use String here because ArduinoJson library requires the input
+  // buffer to be mutable. If you don't use ArduinoJson, you may as well
+  // use configFile.readString instead.
+  configFile.readBytes(buf.get(), size);
+
+  StaticJsonDocument<200> doc; // https://arduinojson.org/v6/assistant/
+  auto error = deserializeJson(doc, buf.get());
+  if (error) {
+    //Serial.println("Failed to parse config file");
+    return false;
+  }
+
+  const char* c_ws_server_ip = doc["webserver"]["ip"];
+  const char* c_ws_server_port = doc["webserver"]["port"];
+  const char* c_ws_server_url = doc["webserver"]["url"];
+  
+  strcpy(ws_server_ip, c_ws_server_ip);
+  strcpy(ws_server_port, c_ws_server_port);
+  strcpy(ws_server_url, c_ws_server_url);
+
+  Serial.print("ws_server_ip: "); Serial.println(ws_server_ip);
+  Serial.print("ws_server_port: "); Serial.println(ws_server_port);
+  Serial.print("ws_server_url: "); Serial.println(ws_server_url);
+
+  return true;
+}
+bool saveConfig() {
+  Serial.println("saving config");
+  StaticJsonDocument<200> doc; // https://arduinojson.org/v6/assistant/
+
+  doc["webserver"]["ip"] = ws_server_ip;
+  doc["webserver"]["port"] = ws_server_port;
+  doc["webserver"]["url"] = ws_server_url;
+
+  File configFile = LittleFS.open("/config.json", "w");
+  if (!configFile) {
+    Serial.println("Failed to open config file for writing");
+    return false;
+  }
+
+  serializeJson(doc, configFile);
   return true;
 }
 
-// Replaces placeholder with LED state value
-String processor(const String& var) {
-  if(var == "STATE") {
-    if(digitalRead(ledPin)) {
-      ledState = "ON";
-    }
-    else {
-      ledState = "OFF";
-    }
-    return ledState;
-  }
-  return String();
-}
-
+/* setup */
 void setup() {
-  // Serial port for debugging purposes
-  Serial.begin(115200);
-  
-  initSPIFFS();
+      
+  DEVICE_ID += String(ESP.getChipId(), HEX);
 
-  pinMode(ledPin, OUTPUT);
-  digitalWrite(ledPin, LOW);
-  pinMode(outputPin1, OUTPUT);
-  
-  // Load values saved in SPIFFS
-  ssid = readFile(SPIFFS, ssidPath);
-  pass = readFile(SPIFFS, passPath);
-  ip = readFile(SPIFFS, ipPath);
-  gateway = readFile (SPIFFS, gatewayPath);
-  Serial.println(ssid);
-  Serial.println(pass);
-  Serial.println(ip);
-  Serial.println(gateway);
-
-  if(initWiFi()) {
-    // Route for root / web page
-    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-      request->send(SPIFFS, "/index.html", "text/html", false, processor);
-    });
-    server.serveStatic("/", SPIFFS, "/");
+  Serial.begin(SERIAL_BAUD_RATE, SERIAL_8N1);
+  delay(500); // give the serial port time to start up
     
-    // Route to set GPIO state to HIGH
-    server.on("/on", HTTP_GET, [](AsyncWebServerRequest *request) {
-      digitalWrite(ledPin, HIGH);
-      request->send(SPIFFS, "/index.html", "text/html", false, processor);
-    });
+  setupPins(); // should be before setupWifiManager() to catch button
+  initLittleFS();
+  loadConfig();
+  timer_heartbeat = millis();
 
-    // Route to set GPIO state to LOW
-    server.on("/off", HTTP_GET, [](AsyncWebServerRequest *request) {
-      digitalWrite(ledPin, LOW);
-      request->send(SPIFFS, "/index.html", "text/html", false, processor);
-    });
-    server.begin();
-  }
-  else {
-    // Connect to Wi-Fi network with SSID and password
-    Serial.println("Setting AP (Access Point)");
-    // NULL sets an open Access Point
-    WiFi.softAP("YetiMon", NULL);
+  setupWifiManager();
+  setupOTA();
 
-    IPAddress IP = WiFi.softAPIP();
-    Serial.print("AP IP address: ");
-    Serial.println(IP); 
+  setupWebserver();
+  setupWebsocket();
 
-    // Web Server Root URL
-    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-      request->send(SPIFFS, "/wifimanager.html", "text/html");
-    });
-    
-    server.serveStatic("/", SPIFFS, "/");
-    
-    server.on("/", HTTP_POST, [](AsyncWebServerRequest *request) {
-      int params = request->params();
-      for(int i=0;i<params;i++){
-        AsyncWebParameter* p = request->getParam(i);
-        if(p->isPost()){
-          // HTTP POST ssid value
-          if (p->name() == PARAM_INPUT_1) {
-            ssid = p->value().c_str();
-            Serial.print("SSID set to: ");
-            Serial.println(ssid);
-            // Write file to save value
-            writeFile(SPIFFS, ssidPath, ssid.c_str());
-          }
-          // HTTP POST pass value
-          if (p->name() == PARAM_INPUT_2) {
-            pass = p->value().c_str();
-            Serial.print("Password set to: ");
-            Serial.println(pass);
-            // Write file to save value
-            writeFile(SPIFFS, passPath, pass.c_str());
-          }
-          // HTTP POST ip value
-          if (p->name() == PARAM_INPUT_3) {
-            ip = p->value().c_str();
-            Serial.print("IP Address set to: ");
-            Serial.println(ip);
-            // Write file to save value
-            writeFile(SPIFFS, ipPath, ip.c_str());
-          }
-          // HTTP POST gateway value
-          if (p->name() == PARAM_INPUT_4) {
-            gateway = p->value().c_str();
-            Serial.print("Gateway set to: ");
-            Serial.println(gateway);
-            // Write file to save value
-            writeFile(SPIFFS, gatewayPath, gateway.c_str());
-          }
-          //Serial.printf("POST[%s]: %s\n", p->name().c_str(), p->value().c_str());
-        }
-      }
-      request->send(200, "text/plain", "Done. ESP will restart, connect to your router and go to IP address: " + ip);
-      delay(3000);
-      ESP.restart();
-    });
-    server.begin();
-  }
+  //
+  // done with setup
+  //
+  Serial.println("Ready");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+
+  Serial.print("AP address: ");
+  Serial.println(WiFi.softAPIP());
 }
 
-
-
-
-
+/* loop */
 void loop() {
+  //
+  // handle logic
+  //
+  if (OtaInProgress == false) {
+
+
+
+
+
   unsigned long currentMillis = millis();
   
   if (currentMillis - previousSampleMillis >= sampleInterval) {
@@ -321,22 +638,19 @@ void loop() {
       totalVoltage = totalVoltage + voltageReadings[i];
     }
     averageVoltage = totalVoltage / AVG_VOLTAGE_SIZE;
-
   }
 
   if (averageVoltage < lowerLimit){
     if (currentMillis - previousLimitMillis >= limitDelay) {
-      outputPin1State = HIGH;
+      RELAY_STATE = HIGH;
     }
   } else if (averageVoltage > upperLimit) {
     if (currentMillis - previousLimitMillis >= limitDelay) {
-      outputPin1State = LOW;
+      RELAY_STATE = LOW;
     }
   } else {
     previousLimitMillis = currentMillis;
   }
-  
-  digitalWrite(outputPin1, outputPin1State);
   
   if (currentMillis - previousPrintMillis >= printInterval) {
     previousPrintMillis = currentMillis;
@@ -347,8 +661,24 @@ void loop() {
     Serial.print(" | avg=");
     Serial.print(averageVoltage); 
     Serial.print(" | output1=");
-    Serial.print(outputPin1State);
+    Serial.print(RELAY_STATE);
     Serial.println();
   }
+
+
+
+
+    
+    //checkWifi();
+    handleIO();
+    handleHeartbeat();
+    webSocket_Server.loop();
+    webSocket_Client.loop();
+  }
+  ArduinoOTA.handle();
   
+  //
+  // take a breather
+  //
+  yield();
 }
