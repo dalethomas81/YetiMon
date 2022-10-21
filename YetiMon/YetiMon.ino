@@ -282,9 +282,9 @@ void setupWebserver() {
 #define SAMPLE_INTERVAL               100     // how often to sample the voltage in ms
 #define UPPER_VOLTAGE_LIMIT           11.50   // charging - 11.27v is 32%
 #define LOWER_VOLTAGE_LIMIT           10.70   // discharging - 10.57v is about 6%
-#define LIMIT_DELAY                   60000   // how long to be under/over the limits in ms
+#define LIMIT_DELAY                   10000   // how long to be under/over the limits before switching to aux in ms
 #define BROADCAST_RATE_LIMIT          2000    // limit the rate we can print/broadcast updates in ms
-#define BROADCAST_TOLERANCE           0.01    // voltage tolerance to print/broadcase
+#define BROADCAST_TOLERANCE           0.01    // voltage tolerance to print/broadcast
 #define DEBOUNCE_DELAY                50      // the debounce time for hardware buttons
 int buttonState = HIGH; 
 int previousButtonState = buttonState;
@@ -337,7 +337,8 @@ void handleIO() {
 
       // only toggle the LED if the new button state is HIGH
       if (buttonState == HIGH) {
-        //relayState = !relayState;
+        relayState = !relayState;
+        previousLimitMillis = millis();
       }
 
       broadcastUpdates(); // send out websockets updates
@@ -345,11 +346,10 @@ void handleIO() {
     }
   }
 
-  // set the LED:
+  // write to i/o
   digitalWrite(GPIO_LED, !relayState);
   digitalWrite(GPIO_RELAY, relayState);
 
-  // save the reading. Next time through the loop, it'll be the previousButtonState:
   previousButtonState = reading;
 }
 void monitorVoltage() {
@@ -359,10 +359,10 @@ void monitorVoltage() {
       previousSampleMillis = currentMillis;
       
       sensorValue = analogRead(GPIO_VOLTAGE_INPUT);
-      // sensorValue * scaled-input-to-controller * scaled-input-to-voltage-divider
-      //voltageValue = sensorValue * (5.0 / 1023.0) * (15.0 / 5.0);
-      //voltageValue = sensorValue * (3.3 / 4095.0) * (15.0 / 2.4);
-      voltageValue = sensorValue * (3.3 / 1023.0) * (15.0 / 2.4);
+      // sensorValue * scaled-input-to-controller * scaled-input-to-voltage-divider(this term from spreadsheet)
+      //voltageValue = sensorValue * (5.0 / 1023.0) * (15.0 / 5.0); // aruduino uno at328
+      //voltageValue = sensorValue * (3.3 / 4095.0) * (15.0 / 2.4); // adafruit feather esp32
+      voltageValue = sensorValue * (3.3 / 1023.0) * (15.0 / 2.4); // nodemcu esp8266
   
       // smoothing
       voltageReadings[voltageArrayIndex] = voltageValue;
@@ -377,7 +377,8 @@ void monitorVoltage() {
       }
       averageVoltage = totalVoltage / AVG_VOLTAGE_SIZE;
     }
-  
+
+    // process results vs limits
     if (averageVoltage < LOWER_VOLTAGE_LIMIT){
       if (currentMillis - previousLimitMillis >= LIMIT_DELAY) {
         relayState = HIGH;
