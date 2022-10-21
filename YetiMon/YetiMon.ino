@@ -274,9 +274,9 @@ void setupWebserver() {
 
 /* i/o */
 #define ERASE_CONFIG_TIME             10000   // how long to hold down the button to erase config in ms
-#define GPIO_13_LED                   D4      // D4 is LED on nodemcu
-#define GPIO_0_BUTTON                 D3      // D3 is flash button on nodemcu
-#define GPIO_12_RELAY                 D0      // D0 is HIGH at boot
+#define GPIO_LED                      D4      // D4 is LED on nodemcu
+#define GPIO_BUTTON                   D3      // D3 is flash button on nodemcu
+#define GPIO_RELAY                    D0      // D0 is HIGH at boot
 #define GPIO_VOLTAGE_INPUT            A0      // A0 is the only analog input on esp8266
 #define AVG_VOLTAGE_SIZE              100     // size of the array for smoothing analog in
 #define SAMPLE_INTERVAL               100     // how often to sample the voltage in ms
@@ -297,17 +297,17 @@ int voltageArrayIndex = 0;
 float previousBroadcastedVoltage, voltageValue, totalVoltage, averageVoltage;
 unsigned long previousLimitMillis, previousSampleMillis, previousPrintMillis;
 void setupPins() {
-  pinMode(GPIO_13_LED, OUTPUT);
-  digitalWrite(GPIO_13_LED, !relayState); // nodemcu led is off when low
+  pinMode(GPIO_LED, OUTPUT);
+  digitalWrite(GPIO_LED, !relayState); // nodemcu led is off when low
   
-  pinMode(GPIO_12_RELAY, OUTPUT);
-  digitalWrite(GPIO_12_RELAY, relayState); // our relay is off when high
+  pinMode(GPIO_RELAY, OUTPUT);
+  digitalWrite(GPIO_RELAY, relayState); // our relay is off when high
   
-  pinMode(GPIO_0_BUTTON, INPUT_PULLUP);
+  pinMode(GPIO_BUTTON, INPUT_PULLUP);
 }
 void handleIO() {
   // read the state of the switch into a local variable:
-  int reading = digitalRead(GPIO_0_BUTTON);
+  int reading = digitalRead(GPIO_BUTTON);
 
   // if button is held down for the alloted time the config portal will start
   if (reading > 0) { // keep resetting timer until pressed
@@ -346,8 +346,8 @@ void handleIO() {
   }
 
   // set the LED:
-  digitalWrite(GPIO_13_LED, !relayState);
-  digitalWrite(GPIO_12_RELAY, relayState);
+  digitalWrite(GPIO_LED, !relayState);
+  digitalWrite(GPIO_RELAY, relayState);
 
   // save the reading. Next time through the loop, it'll be the previousButtonState:
   previousButtonState = reading;
