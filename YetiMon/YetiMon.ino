@@ -45,45 +45,6 @@
 const char version[] = "build "  __DATE__ " " __TIME__; 
 String BUILD_DATE(version);
 String DEVICE_ID(CONST_DEVICE_ID);
-int BUTTON_STATE;                     // the current reading from the input pin
-int BUTTON_STATE_LAST = HIGH;         // the previous reading from the input pin
-unsigned long lastDebounceTime = 0;   // the last time the output pin was toggled
-unsigned long debounceDelay = 50;     // the debounce time; increase if the output flickers
-
-
-
-
-
-const int analogInPin = A0;
-int sensorValue = 0;
-float voltageValue = 0.0;
-const float upperLimit = 11.40; // charging - 11.10v is 10% | 11.21v is 29% | 11.40v is 41%
-const float lowerLimit = 10.40; // discharging - 10.41v is about 15% | 10.28v is 10%
-// note: we see about 300mV increase with 600w power supply on.
-
-#define AVG_VOLTAGE_SIZE 100
-float voltageReadings[AVG_VOLTAGE_SIZE] = {0.0};
-int voltageArrayIndex = 0;
-float totalVoltage = 0.0;
-float averageVoltage = 0.0;
-
-//const int outputPin1 =  15; // Can only come from ADC#1 if using Wifi - A2,A3,A4,32,33
-//int outputPin1State = LOW;
-
-const long limitDelay = 60000; // how long to be under/over the limits
-unsigned long previousLimitMillis = 0;
-
-const long sampleInterval = 100;
-unsigned long previousSampleMillis = 0;
-
-const long printInterval = 2000;
-unsigned long previousPrintMillis = 0;
-
-
-
-
-
-
 
 /* web server */
 AsyncWebServer server(WIFI_LISTENING_PORT);
@@ -156,7 +117,7 @@ void handleEraseConfig() {
 }
 
 /* ota */
-//#define OTA_PASSWORD    "ProFiBus@12"
+//#define OTA_PASSWORD    "ESPsAreGreat!"
 bool OtaInProgress = false;
 int progress_last = 0;
 void setupOTA(){
@@ -198,7 +159,6 @@ void setupOTA(){
 
 /* utility */
 #define HEARTBEAT_TIME  1000
-#define ERASE_CONFIG_TIME 10000
 uint8_t HEARTBEAT_VALUE;
 bool HeartbeatOn = false;
 unsigned long timer_heartbeat;
@@ -313,10 +273,29 @@ void setupWebserver() {
 }
 
 /* i/o */
-#define GPIO_13_LED               D4 // D4 is LED on nodemcu
-#define GPIO_0_BUTTON             D3 // D3 is flash button on nodemcu
-#define GPIO_12_RELAY             D0 // D0 is HIGH at boot
-int RELAY_STATE = HIGH;             // our relay is off when high
+#define ERASE_CONFIG_TIME             10000   // how long to hold down the button to erase config in ms
+#define GPIO_13_LED                   D4      // D4 is LED on nodemcu
+#define GPIO_0_BUTTON                 D3      // D3 is flash button on nodemcu
+#define GPIO_12_RELAY                 D0      // D0 is HIGH at boot
+#define GPIO_VOLTAGE_INPUT            A0      // A0 is the only analog input on esp8266
+#define AVG_VOLTAGE_SIZE              100     // size of the array for smoothing analog in
+#define SAMPLE_INTERVAL               100     // how often to sample the voltage in ms
+#define UPPER_VOLTAGE_LIMIT           11.70   // charging - 11.27v is 32%
+#define LOWER_VOLTAGE_LIMIT           10.70   // discharging - 10.57v is about 6%
+#define LIMIT_DELAY                   60000   // how long to be under/over the limits in ms
+#define BROADCAST_RATE_LIMIT          2000    // limit the rate we can print/broadcast updates in ms
+#define BROADCAST_TOLERANCE           0.01    // voltage tolerance to print/broadcase
+#define DEBOUNCE_DELAY                50      // the debounce time for hardware buttons
+int BUTTON_STATE = HIGH;                      // the current reading from the input pin
+int BUTTON_STATE_LAST = BUTTON_STATE;         // the previous reading from the input pin
+bool RELAY_STATE = LOW;                       // our relay is off when LOW
+bool previousRelayState = RELAY_STATE;
+unsigned long lastDebounceTime = 0;   // the last time the output pin was toggled
+int sensorValue = 0;
+float voltageReadings[AVG_VOLTAGE_SIZE] = {0.0};
+int voltageArrayIndex = 0;
+float previousBroadcastedVoltage, voltageValue, totalVoltage, averageVoltage;
+unsigned long previousLimitMillis, previousSampleMillis, previousPrintMillis;
 void setupPins() {
   pinMode(GPIO_13_LED, OUTPUT);
   digitalWrite(GPIO_13_LED, !RELAY_STATE); // nodemcu led is off when low
@@ -348,7 +327,7 @@ void handleIO() {
     lastDebounceTime = millis();
   }
 
-  if ((millis() - lastDebounceTime) > debounceDelay) {
+  if ((millis() - lastDebounceTime) > DEBOUNCE_DELAY) {
     // whatever the reading is at, it's been there for longer than the debounce
     // delay, so take it as the actual current state:
 
@@ -372,6 +351,67 @@ void handleIO() {
 
   // save the reading. Next time through the loop, it'll be the BUTTON_STATE_LAST:
   BUTTON_STATE_LAST = reading;
+}
+void monitorVoltage() {
+    unsigned long currentMillis = millis();
+    
+    if (currentMillis - previousSampleMillis >= SAMPLE_INTERVAL) {
+      previousSampleMillis = currentMillis;
+      
+      sensorValue = analogRead(GPIO_VOLTAGE_INPUT);
+      // sensorValue * scaled-input-to-controller * scaled-input-to-voltage-divider
+      //voltageValue = sensorValue * (5.0 / 1023.0) * (15.0 / 5.0);
+      //voltageValue = sensorValue * (3.3 / 4095.0) * (15.0 / 2.4);
+      voltageValue = sensorValue * (3.3 / 1023.0) * (15.0 / 2.4);
+  
+      // smoothing
+      voltageReadings[voltageArrayIndex] = voltageValue;
+      if (voltageArrayIndex >= AVG_VOLTAGE_SIZE - 1){
+        voltageArrayIndex = 0;
+      } else {
+        voltageArrayIndex++;
+      }
+      totalVoltage = 0.0;
+      for (int i = 0; i <= AVG_VOLTAGE_SIZE - 1; i++){
+        totalVoltage = totalVoltage + voltageReadings[i];
+      }
+      averageVoltage = totalVoltage / AVG_VOLTAGE_SIZE;
+    }
+  
+    if (averageVoltage < LOWER_VOLTAGE_LIMIT){
+      if (currentMillis - previousLimitMillis >= LIMIT_DELAY) {
+        RELAY_STATE = HIGH;
+      }
+    } else if (averageVoltage > UPPER_VOLTAGE_LIMIT) {
+      if (currentMillis - previousLimitMillis >= LIMIT_DELAY) {
+        RELAY_STATE = LOW;
+      }
+    } else {
+      previousLimitMillis = currentMillis;
+    }
+
+    // if voltage value changes enough send out an update to clients
+    if (((averageVoltage > previousBroadcastedVoltage + BROADCAST_TOLERANCE ||
+        averageVoltage < previousBroadcastedVoltage - BROADCAST_TOLERANCE) &&
+        currentMillis - previousPrintMillis >= BROADCAST_RATE_LIMIT) ||
+        RELAY_STATE != previousRelayState){
+          
+        previousPrintMillis = currentMillis;
+        previousBroadcastedVoltage = averageVoltage;
+        previousRelayState = RELAY_STATE;
+        broadcastUpdates();
+
+        Serial.print("sensor=");
+        Serial.print(sensorValue);  
+        Serial.print(" voltage=");
+        Serial.print(voltageValue);  
+        Serial.print(" | avg=");
+        Serial.print(averageVoltage); 
+        Serial.print(" | output1=");
+        Serial.print(RELAY_STATE);
+        Serial.println();
+      
+    }
 }
 
 /* websockets */
@@ -415,7 +455,7 @@ void broadcastUpdates() {
   jsonBuffer["data"]["heartbeat_value"] = HEARTBEAT_VALUE; 
 
   jsonBuffer["data"]["button_state"] = (bool)BUTTON_STATE;
-  jsonBuffer["data"]["relay_state"] = (bool)!RELAY_STATE; // our relay is off when high
+  jsonBuffer["data"]["relay_state"] = (bool)RELAY_STATE; // our relay is off when high
   jsonBuffer["data"]["avg_voltage"] = (float)averageVoltage;
 
   serializeJson(jsonBuffer,payload);
@@ -501,10 +541,12 @@ void parseWebSocketMessage(JsonDocument& jsonBuffer) {
     const char* child_state = jsonBuffer["child"]["state"];
       if(strcmp(child_id, "relay") == 0) {
         if(strcmp(child_state, "true") == 0) {
-          RELAY_STATE = false;
+          RELAY_STATE = HIGH;
+          previousLimitMillis = millis();
         }
         if(strcmp(child_state, "false") == 0) {
-          RELAY_STATE = true;
+          RELAY_STATE = LOW;
+          previousLimitMillis = millis();
         }
       }
     broadcastUpdates();
@@ -612,82 +654,12 @@ void setup() {
 }
 
 /* loop */
-float previousBroadcastedVoltage = 0.0;
-float voltageBroadcastTolerance = 0.01;
 void loop() {
   //
   // handle logic
   //
   if (OtaInProgress == false) {
-
-    unsigned long currentMillis = millis();
-    
-    if (currentMillis - previousSampleMillis >= sampleInterval) {
-      previousSampleMillis = currentMillis;
-      
-      sensorValue = analogRead(analogInPin);
-      // sensorValue * scaled-input-to-controller * scaled-input-to-voltage-divider
-      //voltageValue = sensorValue * (5.0 / 1023.0) * (15.0 / 5.0);
-      //voltageValue = sensorValue * (3.3 / 4095.0) * (15.0 / 2.4);
-      voltageValue = sensorValue * (3.3 / 1023.0) * (15.0 / 2.4);
-  
-      // smoothing
-      voltageReadings[voltageArrayIndex] = voltageValue;
-      if (voltageArrayIndex >= AVG_VOLTAGE_SIZE - 1){
-        voltageArrayIndex = 0;
-      } else {
-        voltageArrayIndex++;
-      }
-      totalVoltage = 0.0;
-      for (int i = 0; i <= AVG_VOLTAGE_SIZE - 1; i++){
-        totalVoltage = totalVoltage + voltageReadings[i];
-      }
-      averageVoltage = totalVoltage / AVG_VOLTAGE_SIZE;
-    }
-  
-    if (averageVoltage < lowerLimit){
-      if (currentMillis - previousLimitMillis >= limitDelay) {
-        RELAY_STATE = LOW; // our relay is on when low
-      }
-    } else if (averageVoltage > upperLimit) {
-      if (currentMillis - previousLimitMillis >= limitDelay) {
-        RELAY_STATE = HIGH; // our relay is off when high
-      }
-    } else {
-      previousLimitMillis = currentMillis;
-    }
-
-    // if voltage value changes enough send out an update to clients
-    if ((averageVoltage > previousBroadcastedVoltage + voltageBroadcastTolerance ||
-        averageVoltage < previousBroadcastedVoltage - voltageBroadcastTolerance) &&
-        currentMillis - previousPrintMillis >= printInterval) {
-          
-        previousPrintMillis = currentMillis;
-        previousBroadcastedVoltage = averageVoltage;
-        broadcastUpdates();
-
-      //if (currentMillis - previousPrintMillis >= printInterval) {
-      //  previousPrintMillis = currentMillis;
-        Serial.print("sensor=");
-        Serial.print(sensorValue);  
-        Serial.print(" voltage=");
-        Serial.print(voltageValue);  
-        Serial.print(" | avg=");
-        Serial.print(averageVoltage); 
-        Serial.print(" | output1=");
-        Serial.print(!RELAY_STATE); // our relay is off when HIGH and on when LOW
-        Serial.println();
-      //}
-      
-    }
-
-    
-
-
-
-
-
-    
+    monitorVoltage();
     //checkWifi();
     handleIO();
     handleHeartbeat();
