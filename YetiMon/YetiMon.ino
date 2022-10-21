@@ -37,7 +37,7 @@
 #include <StreamString.h>
 
 /* global defines */
-#define CONST_DEVICE_ID           "ESP-"
+#define CONST_DEVICE_ID           "YetiMon-"
 #define WIFI_LISTENING_PORT       80
 #define SERIAL_BAUD_RATE          115200
 
@@ -280,17 +280,17 @@ void setupWebserver() {
 #define GPIO_VOLTAGE_INPUT            A0      // A0 is the only analog input on esp8266
 #define AVG_VOLTAGE_SIZE              100     // size of the array for smoothing analog in
 #define SAMPLE_INTERVAL               100     // how often to sample the voltage in ms
-#define UPPER_VOLTAGE_LIMIT           11.70   // charging - 11.27v is 32%
+#define UPPER_VOLTAGE_LIMIT           11.50   // charging - 11.27v is 32%
 #define LOWER_VOLTAGE_LIMIT           10.70   // discharging - 10.57v is about 6%
 #define LIMIT_DELAY                   60000   // how long to be under/over the limits in ms
 #define BROADCAST_RATE_LIMIT          2000    // limit the rate we can print/broadcast updates in ms
 #define BROADCAST_TOLERANCE           0.01    // voltage tolerance to print/broadcase
 #define DEBOUNCE_DELAY                50      // the debounce time for hardware buttons
-int BUTTON_STATE = HIGH;                      // the current reading from the input pin
-int BUTTON_STATE_LAST = BUTTON_STATE;         // the previous reading from the input pin
-bool RELAY_STATE = LOW;                       // our relay is off when LOW
-bool previousRelayState = RELAY_STATE;
-unsigned long lastDebounceTime = 0;   // the last time the output pin was toggled
+int buttonState = HIGH; 
+int previousButtonState = buttonState;
+bool relayState = LOW;                        // our relay is off when LOW
+bool previousRelayState = relayState;
+unsigned long lastDebounceTime = 0;
 int sensorValue = 0;
 float voltageReadings[AVG_VOLTAGE_SIZE] = {0.0};
 int voltageArrayIndex = 0;
@@ -298,10 +298,10 @@ float previousBroadcastedVoltage, voltageValue, totalVoltage, averageVoltage;
 unsigned long previousLimitMillis, previousSampleMillis, previousPrintMillis;
 void setupPins() {
   pinMode(GPIO_13_LED, OUTPUT);
-  digitalWrite(GPIO_13_LED, !RELAY_STATE); // nodemcu led is off when low
+  digitalWrite(GPIO_13_LED, !relayState); // nodemcu led is off when low
   
   pinMode(GPIO_12_RELAY, OUTPUT);
-  digitalWrite(GPIO_12_RELAY, RELAY_STATE); // our relay is off when high
+  digitalWrite(GPIO_12_RELAY, relayState); // our relay is off when high
   
   pinMode(GPIO_0_BUTTON, INPUT_PULLUP);
 }
@@ -322,7 +322,7 @@ void handleIO() {
   // since the last press to ignore any noise:
 
   // If the switch changed, due to noise or pressing:
-  if (reading != BUTTON_STATE_LAST) {
+  if (reading != previousButtonState) {
     // reset the debouncing timer
     lastDebounceTime = millis();
   }
@@ -332,12 +332,12 @@ void handleIO() {
     // delay, so take it as the actual current state:
 
     // if the button state has changed:
-    if (reading != BUTTON_STATE) {
-      BUTTON_STATE = reading;
+    if (reading != buttonState) {
+      buttonState = reading;
 
       // only toggle the LED if the new button state is HIGH
-      if (BUTTON_STATE == HIGH) {
-        //RELAY_STATE = !RELAY_STATE;
+      if (buttonState == HIGH) {
+        //relayState = !relayState;
       }
 
       broadcastUpdates(); // send out websockets updates
@@ -346,11 +346,11 @@ void handleIO() {
   }
 
   // set the LED:
-  digitalWrite(GPIO_13_LED, !RELAY_STATE);
-  digitalWrite(GPIO_12_RELAY, RELAY_STATE);
+  digitalWrite(GPIO_13_LED, !relayState);
+  digitalWrite(GPIO_12_RELAY, relayState);
 
-  // save the reading. Next time through the loop, it'll be the BUTTON_STATE_LAST:
-  BUTTON_STATE_LAST = reading;
+  // save the reading. Next time through the loop, it'll be the previousButtonState:
+  previousButtonState = reading;
 }
 void monitorVoltage() {
     unsigned long currentMillis = millis();
@@ -380,11 +380,11 @@ void monitorVoltage() {
   
     if (averageVoltage < LOWER_VOLTAGE_LIMIT){
       if (currentMillis - previousLimitMillis >= LIMIT_DELAY) {
-        RELAY_STATE = HIGH;
+        relayState = HIGH;
       }
     } else if (averageVoltage > UPPER_VOLTAGE_LIMIT) {
       if (currentMillis - previousLimitMillis >= LIMIT_DELAY) {
-        RELAY_STATE = LOW;
+        relayState = LOW;
       }
     } else {
       previousLimitMillis = currentMillis;
@@ -394,11 +394,11 @@ void monitorVoltage() {
     if (((averageVoltage > previousBroadcastedVoltage + BROADCAST_TOLERANCE ||
         averageVoltage < previousBroadcastedVoltage - BROADCAST_TOLERANCE) &&
         currentMillis - previousPrintMillis >= BROADCAST_RATE_LIMIT) ||
-        RELAY_STATE != previousRelayState){
+        relayState != previousRelayState){
           
         previousPrintMillis = currentMillis;
         previousBroadcastedVoltage = averageVoltage;
-        previousRelayState = RELAY_STATE;
+        previousRelayState = relayState;
         broadcastUpdates();
 
         Serial.print("sensor=");
@@ -408,7 +408,7 @@ void monitorVoltage() {
         Serial.print(" | avg=");
         Serial.print(averageVoltage); 
         Serial.print(" | output1=");
-        Serial.print(RELAY_STATE);
+        Serial.print(relayState);
         Serial.println();
       
     }
@@ -454,8 +454,8 @@ void broadcastUpdates() {
   jsonBuffer["data"]["device_build"] = BUILD_DATE.c_str();
   jsonBuffer["data"]["heartbeat_value"] = HEARTBEAT_VALUE; 
 
-  jsonBuffer["data"]["button_state"] = (bool)BUTTON_STATE;
-  jsonBuffer["data"]["relay_state"] = (bool)RELAY_STATE; // our relay is off when high
+  jsonBuffer["data"]["button_state"] = (bool)buttonState;
+  jsonBuffer["data"]["relay_state"] = (bool)relayState; // our relay is off when high
   jsonBuffer["data"]["avg_voltage"] = (float)averageVoltage;
 
   serializeJson(jsonBuffer,payload);
@@ -541,11 +541,11 @@ void parseWebSocketMessage(JsonDocument& jsonBuffer) {
     const char* child_state = jsonBuffer["child"]["state"];
       if(strcmp(child_id, "relay") == 0) {
         if(strcmp(child_state, "true") == 0) {
-          RELAY_STATE = HIGH;
+          relayState = HIGH;
           previousLimitMillis = millis();
         }
         if(strcmp(child_state, "false") == 0) {
-          RELAY_STATE = LOW;
+          relayState = LOW;
           previousLimitMillis = millis();
         }
       }
