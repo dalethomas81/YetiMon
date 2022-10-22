@@ -35,6 +35,8 @@
 #include <WebSocketsClient.h>
 #include <ArduinoOTA.h>
 #include <StreamString.h>
+#include <SPI.h>
+#include "Adafruit_MAX31855.h"
 
 /* global defines */
 #define CONST_DEVICE_ID           "YetiMon-"
@@ -279,24 +281,34 @@ void setupWebserver() {
 #define GPIO_RELAY                    D0      // D0 is HIGH at boot
 #define GPIO_VOLTAGE_INPUT            A0      // A0 is the only analog input on esp8266
 #define AVG_VOLTAGE_SIZE              100     // size of the array for smoothing analog in
+#define AVG_TEMPERATURE_SIZE          100     // size of the array for smoothing analog in
 #define SAMPLE_INTERVAL               100     // how often to sample the voltage in ms
 #define UPPER_VOLTAGE_LIMIT           11.50   // charging - 11.27v is 32%
 #define LOWER_VOLTAGE_LIMIT           10.70   // discharging - 10.57v is about 6%
 #define LIMIT_DELAY                   10000   // how long to be under/over the limits before switching to aux in ms
 #define BROADCAST_RATE_LIMIT          2000    // limit the rate we can print/broadcast updates in ms
-#define BROADCAST_TOLERANCE           0.01    // voltage tolerance to print/broadcast
+#define BROADCAST_VOLT_TOLERANCE      0.01    // voltage tolerance to print/broadcast_
+#define BROADCAST_TEMP_TOLERANCE      0.01    // voltage tolerance to print/broadcast
 #define DEBOUNCE_DELAY                50      // the debounce time for hardware buttons
+#define MAXDO                         D6
+#define MAXCS                         D8
+#define MAXCLK                        D5
+Adafruit_MAX31855 thermocouple(MAXCLK, MAXCS, MAXDO);
+float temperatureSensorValue = 0.0;
+float temperatureReadings[AVG_TEMPERATURE_SIZE] = {0.0};
+int temperatureArrayIndex = 0;
+float previousBroadcastedTemperature, temperatureValue, totalTemperature, averageTemperature;
 int buttonState = HIGH; 
 int previousButtonState = buttonState;
 bool relayState = LOW;                        // our relay is off when LOW
 bool previousRelayState = relayState;
 unsigned long lastDebounceTime = 0;
-int sensorValue = 0;
+int voltageSensorValue = 0;
 float voltageReadings[AVG_VOLTAGE_SIZE] = {0.0};
 int voltageArrayIndex = 0;
 float previousBroadcastedVoltage, voltageValue, totalVoltage, averageVoltage;
 unsigned long previousLimitMillis, previousSampleMillis, previousPrintMillis;
-void setupPins() {
+void setupIO() {
   pinMode(GPIO_LED, OUTPUT);
   digitalWrite(GPIO_LED, !relayState); // nodemcu led is off when low
   
@@ -304,6 +316,8 @@ void setupPins() {
   digitalWrite(GPIO_RELAY, relayState); // our relay is off when high
   
   pinMode(GPIO_BUTTON, INPUT_PULLUP);
+  
+  thermocouple.begin();
 }
 void handleIO() {
   // read the state of the switch into a local variable:
@@ -352,67 +366,90 @@ void handleIO() {
 
   previousButtonState = reading;
 }
-void monitorVoltage() {
-    unsigned long currentMillis = millis();
-    
-    if (currentMillis - previousSampleMillis >= SAMPLE_INTERVAL) {
-      previousSampleMillis = currentMillis;
-      
-      sensorValue = analogRead(GPIO_VOLTAGE_INPUT);
-      // sensorValue * scaled-input-to-controller * scaled-input-to-voltage-divider(this term from spreadsheet)
-      //voltageValue = sensorValue * (5.0 / 1023.0) * (15.0 / 5.0); // aruduino uno at328
-      //voltageValue = sensorValue * (3.3 / 4095.0) * (15.0 / 2.4); // adafruit feather esp32
-      voltageValue = sensorValue * (3.3 / 1023.0) * (15.0 / 2.4); // nodemcu esp8266
+void monitorVoltageTemperature() {
+  unsigned long currentMillis = millis();
   
-      // smoothing
-      voltageReadings[voltageArrayIndex] = voltageValue;
-      if (voltageArrayIndex >= AVG_VOLTAGE_SIZE - 1){
-        voltageArrayIndex = 0;
-      } else {
-        voltageArrayIndex++;
-      }
-      totalVoltage = 0.0;
-      for (int i = 0; i <= AVG_VOLTAGE_SIZE - 1; i++){
-        totalVoltage = totalVoltage + voltageReadings[i];
-      }
-      averageVoltage = totalVoltage / AVG_VOLTAGE_SIZE;
-    }
+  if (currentMillis - previousSampleMillis >= SAMPLE_INTERVAL) {
+    previousSampleMillis = currentMillis;
 
-    // process results vs limits
-    if (averageVoltage < LOWER_VOLTAGE_LIMIT){
-      if (currentMillis - previousLimitMillis >= LIMIT_DELAY) {
-        relayState = HIGH;
-      }
-    } else if (averageVoltage > UPPER_VOLTAGE_LIMIT) {
-      if (currentMillis - previousLimitMillis >= LIMIT_DELAY) {
-        relayState = LOW;
-      }
+    // get voltage
+    voltageSensorValue = analogRead(GPIO_VOLTAGE_INPUT);
+    // voltageSensorValue * scaled-input-to-controller * scaled-input-to-voltage-divider(this term from spreadsheet)
+    //voltageValue = voltageSensorValue * (5.0 / 1023.0) * (15.0 / 5.0); // aruduino uno at328
+    //voltageValue = voltageSensorValue * (3.3 / 4095.0) * (15.0 / 2.4); // adafruit feather esp32
+    voltageValue = voltageSensorValue * (3.3 / 1023.0) * (15.0 / 2.4); // nodemcu esp8266
+
+    // smoothing - voltage
+    voltageReadings[voltageArrayIndex] = voltageValue;
+    if (voltageArrayIndex >= AVG_VOLTAGE_SIZE - 1){
+      voltageArrayIndex = 0;
     } else {
-      previousLimitMillis = currentMillis;
+      voltageArrayIndex++;
     }
-
-    // if voltage value changes enough send out an update to clients
-    if (((averageVoltage > previousBroadcastedVoltage + BROADCAST_TOLERANCE ||
-        averageVoltage < previousBroadcastedVoltage - BROADCAST_TOLERANCE) &&
-        currentMillis - previousPrintMillis >= BROADCAST_RATE_LIMIT) ||
-        relayState != previousRelayState){
-          
-        previousPrintMillis = currentMillis;
-        previousBroadcastedVoltage = averageVoltage;
-        previousRelayState = relayState;
-        broadcastUpdates();
-
-        Serial.print("sensor=");
-        Serial.print(sensorValue);  
-        Serial.print(" voltage=");
-        Serial.print(voltageValue);  
-        Serial.print(" | avg=");
-        Serial.print(averageVoltage); 
-        Serial.print(" | output1=");
-        Serial.print(relayState);
-        Serial.println();
-      
+    totalVoltage = 0.0;
+    for (int i = 0; i <= AVG_VOLTAGE_SIZE - 1; i++){
+      totalVoltage = totalVoltage + voltageReadings[i];
     }
+    averageVoltage = totalVoltage / AVG_VOLTAGE_SIZE;
+
+    // get temperature
+    double temperatureSensorValue = thermocouple.readCelsius();
+    //Serial.println(thermocouple.readFahrenheit());
+    //Serial.println(thermocouple.readInternal());
+    
+    // smoothing - temperature
+    temperatureReadings[temperatureArrayIndex] = temperatureValue;
+    if (temperatureArrayIndex >= AVG_TEMPERATURE_SIZE - 1){
+      temperatureArrayIndex = 0;
+    } else {
+      temperatureArrayIndex++;
+    }
+    totalTemperature = 0.0;
+    for (int i = 0; i <= AVG_TEMPERATURE_SIZE - 1; i++){
+      totalTemperature = totalTemperature + temperatureReadings[i];
+    }
+    averageTemperature = totalTemperature / AVG_TEMPERATURE_SIZE;
+    
+  }
+
+  // process results vs limits
+  if (averageVoltage < LOWER_VOLTAGE_LIMIT){
+    if (currentMillis - previousLimitMillis >= LIMIT_DELAY) {
+      relayState = HIGH;
+    }
+  } else if (averageVoltage > UPPER_VOLTAGE_LIMIT) {
+    if (currentMillis - previousLimitMillis >= LIMIT_DELAY) {
+      relayState = LOW;
+    }
+  } else {
+    previousLimitMillis = currentMillis;
+  }
+
+  // if voltage/temperature value changes enough send out an update to clients
+  if (((averageVoltage > previousBroadcastedVoltage + BROADCAST_VOLT_TOLERANCE ||
+      averageVoltage < previousBroadcastedVoltage - BROADCAST_VOLT_TOLERANCE || 
+      averageTemperature > previousBroadcastedTemperature + BROADCAST_TEMP_TOLERANCE ||
+      averageTemperature < previousBroadcastedTemperature - BROADCAST_TEMP_TOLERANCE) &&
+      currentMillis - previousPrintMillis >= BROADCAST_RATE_LIMIT) ||
+      relayState != previousRelayState){
+        
+      previousPrintMillis = currentMillis;
+      previousBroadcastedVoltage = averageVoltage;
+      previousBroadcastedTemperature = averageTemperature;
+      previousRelayState = relayState;
+      broadcastUpdates();
+
+      Serial.print("sensor=");
+      Serial.print(voltageSensorValue); 
+      Serial.print(" | avg voltage=");
+      Serial.print(averageVoltage); 
+      Serial.print(" | avg temperature=");
+      Serial.print(averageTemperature); 
+      Serial.print(" | output1=");
+      Serial.print(relayState);
+      Serial.println();
+    
+  }
 }
 
 /* websockets */
@@ -458,6 +495,7 @@ void broadcastUpdates() {
   jsonBuffer["data"]["button_state"] = (bool)buttonState;
   jsonBuffer["data"]["relay_state"] = (bool)relayState; // our relay is off when high
   jsonBuffer["data"]["avg_voltage"] = (float)averageVoltage;
+  jsonBuffer["data"]["avg_temperature"] = (float)averageTemperature;
 
   serializeJson(jsonBuffer,payload);
 
@@ -627,7 +665,7 @@ void setup() {
   Serial.begin(SERIAL_BAUD_RATE, SERIAL_8N1);
   delay(500); // give the serial port time to start up
     
-  setupPins(); // should be before setupWifiManager() to catch button
+  setupIO(); // should be before setupWifiManager() to catch button
   initLittleFS();
   loadConfig();
   timer_heartbeat = millis();
@@ -660,7 +698,7 @@ void loop() {
   // handle logic
   //
   if (OtaInProgress == false) {
-    monitorVoltage();
+    monitorVoltageTemperature();
     //checkWifi();
     handleIO();
     handleHeartbeat();
