@@ -173,13 +173,16 @@
       <div class="statuslabel">BUTTON STATE: </div><div class="status" id="STATUS_BUTTON_STATE">loading...</div>
     </div>
     <div>
-      <div class="statuslabel">RELAY STATE: </div><div class="status" id="STATUS_RELAY_STATE">loading...</div>
+      <div class="statuslabel">POWER SOURCE: </div><div class="status" id="STATUS_RELAY_STATE">loading...</div>
     </div>
     <div>
-      <div class="statuslabel">VOLTAGE VALUE: </div><div class="status" id="STATUS_VOLTAGE_VALUE">loading...</div>
+      <div class="statuslabel">RELAY TEMPERATURE: </div><div class="status" id="STATUS_TEMPERATURE_VALUE">loading...</div>
     </div>
     <div>
-      <div class="statuslabel">HEARTBEAT VALUE: </div><div class="status" id="STATUS_HEARTBEAT_VALUE">loading...</div>
+      <div class="statuslabel">BATTERY VOLTAGE: </div><div class="status" id="STATUS_VOLTAGE_VALUE">loading...</div>
+    </div>
+    <div>
+      <div class="statuslabel">HEARTBEAT: </div><div class="status" id="STATUS_HEARTBEAT_VALUE">loading...</div>
     </div>
   </div>
 
@@ -189,18 +192,18 @@
     <div style="width:100%;">
       <button id='RELAY_BUTTON'
       class="BTN_ORANGE"
-      style="width:100%;height:60px;visibility:hidden;">RELAY ON</button>
+      style="width:100%;height:60px;visibility:hidden;">AUXILLARY POWER ENABLED</button>
     </div>
     <div>
       <div style="width:50%;float:left;">
         <button id='ON_BUTTON'
         class="BTN_GREEN"
-        style="width:100%;height:60px;">ON</button>
+        style="width:100%;height:60px;">AUXILLARY</button>
       </div>
       <div style="width:50%;float:right;">
         <button id='OFF_BUTTON'
         class="BTN_RED"
-        style="width:100%;height:60px;">OFF</button>
+        style="width:100%;height:60px;">SOLAR</button>
       </div>
     </div>
     <div style="width:100%;">
@@ -232,10 +235,23 @@
     var obj = JSON.parse(evt.data);
     if (obj.topic == "status") {
       document.getElementById('STATUS_DEVICE_ID').innerHTML = obj.data.device_id;
-      document.getElementById('STATUS_BUTTON_STATE').innerHTML = obj.data.button_state;
-      document.getElementById('STATUS_RELAY_STATE').innerHTML = obj.data.relay_state;
+      //document.getElementById('STATUS_BUTTON_STATE').innerHTML = obj.data.button_state;
+      //document.getElementById('STATUS_RELAY_STATE').innerHTML = obj.data.relay_state;
       document.getElementById('STATUS_HEARTBEAT_VALUE').innerHTML = obj.data.heartbeat_value;
       document.getElementById('STATUS_VOLTAGE_VALUE').innerHTML = obj.data.avg_voltage;
+      document.getElementById('STATUS_TEMPERATURE_VALUE').innerHTML = obj.data.avg_temperature;
+
+      if (obj.data.button_state) {
+        document.getElementById('STATUS_BUTTON_STATE').innerHTML = "released";
+      } else {
+        document.getElementById('STATUS_BUTTON_STATE').innerHTML = "pressed";
+      }
+
+      if (obj.data.relay_state) {
+        document.getElementById('STATUS_RELAY_STATE').innerHTML = "auxillary";
+      } else {
+        document.getElementById('STATUS_RELAY_STATE').innerHTML = "solar";
+      }
 
       if (obj.data.relay_state) {
         document.getElementById('RELAY_BUTTON').style.visibility='visible';
