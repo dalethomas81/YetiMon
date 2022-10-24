@@ -44,7 +44,7 @@
 #define SERIAL_BAUD_RATE          115200
 
 /* global variables */
-const char version[] = "build "  __DATE__ " " __TIME__; 
+const char version[] = __DATE__ " " __TIME__; 
 String BUILD_DATE(version);
 String DEVICE_ID(CONST_DEVICE_ID);
 
@@ -438,6 +438,7 @@ void monitorVoltageTemperature() {
       previousBroadcastedTemperature = averageTemperature;
       previousRelayState = relayState;
       broadcastUpdates();
+      updateDisplay();
 
       Serial.print("sensor=");
       Serial.print(voltageSensorValue); 
@@ -450,6 +451,48 @@ void monitorVoltageTemperature() {
       Serial.println();
     
   }
+}
+
+/* display */
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#define SCREEN_WIDTH 128 // OLED display width, in pixels
+#define SCREEN_HEIGHT 32 // OLED display height, in pixels
+// Declaration for an SSD1306 display connected to I2C (SDA, SCL pins)
+#define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
+bool refreshDisplay;
+void setupDisplay(){
+  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  display.clearDisplay();
+  display.setTextSize(1);      // Normal 1:1 pixel scale
+  display.setTextColor(SSD1306_WHITE); // Draw white text
+  display.setCursor(40,0); display.print("YetiMon");
+  display.setCursor(30,10); display.print("build date");
+  display.setCursor(0,20); display.print(BUILD_DATE);
+  display.display();
+  //delay(1000);
+}
+void handleDisplay(){
+  if (refreshDisplay){
+    refreshDisplay = false;
+    //display.setCursor(0, 0);
+    //display.write(' ')
+    //display.display();
+  }
+}
+void updateDisplay(){
+  int i1stColumn = 0; int i2ndColumn = 80;
+  int i1stRow = 0; int i2ndRow = 10; int i3rdRow = 20;
+  display.clearDisplay();
+  display.setCursor(i1stColumn, i1stRow); display.print("voltage: "); // (x,y)
+  display.setCursor(i2ndColumn, i1stRow); display.print(averageVoltage);
+  display.setCursor(i1stColumn, i2ndRow); display.print("temperature: ");
+  display.setCursor(i2ndColumn, i2ndRow); display.print(averageTemperature);
+  display.setCursor(i1stColumn, i3rdRow); display.print("power source: ");
+  display.setCursor(i2ndColumn, i3rdRow); if (relayState) display.print("aux"); else display.print("solar");
+  display.display();
 }
 
 /* websockets */
@@ -666,6 +709,7 @@ void setup() {
   delay(500); // give the serial port time to start up
     
   setupIO(); // should be before setupWifiManager() to catch button
+  setupDisplay();
   initLittleFS();
   loadConfig();
   timer_heartbeat = millis();
@@ -701,6 +745,7 @@ void loop() {
     monitorVoltageTemperature();
     //checkWifi();
     handleIO();
+    handleDisplay();
     handleHeartbeat();
     webSocket_Server.loop();
     webSocket_Client.loop();
