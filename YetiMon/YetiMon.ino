@@ -291,13 +291,13 @@ void setupWebserver() {
 #define BROADCAST_TEMP_TOLERANCE      0.01    // voltage tolerance to print/broadcast
 #define DEBOUNCE_DELAY                50      // the debounce time for hardware buttons
 #define MAXDO                         D6
-#define MAXCS                         D8
+#define MAXCS                         D8      // !!!!! WARNING !!!! pull this bad boy low with a ~10K resistor or the ESP will not boot.
 #define MAXCLK                        D5
 Adafruit_MAX31855 thermocouple(MAXCLK, MAXCS, MAXDO);
 float temperatureSensorValue = 0.0;
 float temperatureReadings[AVG_TEMPERATURE_SIZE] = {0.0};
 int temperatureArrayIndex = 0;
-float previousBroadcastedTemperature, temperatureValue, totalTemperature, averageTemperature;
+float previousBroadcastedTemperature, totalTemperature, averageTemperature;
 int buttonState = HIGH; 
 int previousButtonState = buttonState;
 bool relayState = LOW;                        // our relay is off when LOW
@@ -398,7 +398,7 @@ void monitorVoltageTemperature() {
     //Serial.println(thermocouple.readInternal());
     
     // smoothing - temperature
-    temperatureReadings[temperatureArrayIndex] = temperatureValue;
+    temperatureReadings[temperatureArrayIndex] = temperatureSensorValue;
     if (temperatureArrayIndex >= AVG_TEMPERATURE_SIZE - 1){
       temperatureArrayIndex = 0;
     } else {
