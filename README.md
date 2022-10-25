@@ -22,11 +22,11 @@ Display
 Functional Diagram  
 <img src="https://github.com/dalethomas81/YetiMon/blob/main/media/functional-diagram.jpeg" alt="menu" width="400"/>  
 
-Grafana   
-<img src="https://github.com/dalethomas81/YetiMon/blob/main/media/grafana.jpeg" alt="menu" width="400"/>  
+Grafana  
+<img src="https://github.com/dalethomas81/YetiMon/blob/main/media/grafana.png" alt="menu" width="400"/>  
 
-Web app 
-<img src="https://github.com/dalethomas81/YetiMon/blob/main/media/web-page.jpeg" alt="menu" width="400"/>  
+Web app  
+<img src="https://github.com/dalethomas81/YetiMon/blob/main/media/web-page.png" alt="menu" width="400"/>  
 
 ## 3D Printing
 Here are some of the files used to 3D print the casing.  
