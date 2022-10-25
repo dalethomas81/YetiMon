@@ -37,3 +37,6 @@ Additionally, I 3D printed a case for the oled display. I got this design off of
 
 ## Electrical Schematic  
 Coming soon!!  
+
+## Parts List  
+Coming soon!!  
