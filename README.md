@@ -10,7 +10,23 @@ Video showing YetiMon installed: https://youtu.be/F3phBXkWJbo
 More info to come!  
 
 ## Build Pictures
+Build  
+<img src="https://github.com/dalethomas81/YetiMon/blob/main/media/top-down-full-no-cover.jpeg" alt="menu" width="400"/>  
+
+Installed  
+<img src="https://github.com/dalethomas81/YetiMon/blob/main/media/installed-isometric.jpeg" alt="menu" width="400"/>  
+
+Display  
+<img src="https://github.com/dalethomas81/YetiMon/blob/main/media/oled-display.jpeg" alt="menu" width="400"/>  
+
+Functional Diagram  
 <img src="https://github.com/dalethomas81/YetiMon/blob/main/media/functional-diagram.jpeg" alt="menu" width="400"/>  
+
+Grafana   
+<img src="https://github.com/dalethomas81/YetiMon/blob/main/media/grafana.jpeg" alt="menu" width="400"/>  
+
+Web app 
+<img src="https://github.com/dalethomas81/YetiMon/blob/main/media/web-page.jpeg" alt="menu" width="400"/>  
 
 ## 3D Printing
 Here are some of the files used to 3D print the casing.  
