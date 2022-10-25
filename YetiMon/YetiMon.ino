@@ -118,47 +118,6 @@ void handleEraseConfig() {
     ESP.reset();
 }
 
-/* ota */
-//#define OTA_PASSWORD    "ESPsAreGreat!"
-bool OtaInProgress = false;
-int progress_last = 0;
-void setupOTA(){
-  // Port defaults to 8266
-  // ArduinoOTA.setPort(8266);
-  // Hostname defaults to esp8266-[ChipID]
-  ArduinoOTA.setHostname(DEVICE_ID.c_str());
-  // No authentication by default
-  //ArduinoOTA.setPassword((const char *)OTA_PASSWORD); // using password isnt supported in vscode...yet
-  ArduinoOTA.onStart([]() {
-    OtaInProgress = true;
-    webSocket_Server.onEvent(NULL);
-    webSocket_Client.onEvent(NULL);
-    LittleFS.end();
-    Serial.println("Start");
-  });
-  ArduinoOTA.onEnd([]() {
-    OtaInProgress = false;
-    Serial.println("\nEnd");
-    ESP.restart();
-  });
-  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
-    if (progress != progress_last) {
-      progress_last = progress;
-      Serial.printf("Progress: %u%%\r\n", (progress / (total / 100)));
-    }
-  });
-  ArduinoOTA.onError([](ota_error_t error) {
-    OtaInProgress = false;
-    Serial.printf("Error[%u]: ", error);
-    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
-    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
-    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed. Firewall issue?");
-    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
-    else if (error == OTA_END_ERROR) Serial.println("End Failed");
-  });
-  ArduinoOTA.begin();
-}
-
 /* utility */
 #define HEARTBEAT_TIME  1000
 uint8_t HEARTBEAT_VALUE;
@@ -298,9 +257,9 @@ float temperatureSensorValue = 0.0;
 float temperatureReadings[AVG_TEMPERATURE_SIZE] = {0.0};
 int temperatureArrayIndex = 0;
 float previousBroadcastedTemperature, totalTemperature, averageTemperature;
-int buttonState = HIGH; 
+int buttonState = true; 
 int previousButtonState = buttonState;
-bool relayState = LOW;                        // our relay is off when LOW
+bool relayState = false;                        // our relay is off when false
 bool previousRelayState = relayState;
 unsigned long lastDebounceTime = 0;
 int voltageSensorValue = 0;
@@ -308,6 +267,7 @@ float voltageReadings[AVG_VOLTAGE_SIZE] = {0.0};
 int voltageArrayIndex = 0;
 float previousBroadcastedVoltage, voltageValue, totalVoltage, averageVoltage;
 unsigned long previousLimitMillis, previousSampleMillis, previousPrintMillis;
+bool manualOverride = false;
 void setupIO() {
   pinMode(GPIO_LED, OUTPUT);
   digitalWrite(GPIO_LED, !relayState); // nodemcu led is off when low
@@ -350,7 +310,7 @@ void handleIO() {
       buttonState = reading;
 
       // only toggle the LED if the new button state is HIGH
-      if (buttonState == HIGH) {
+      if (buttonState == true) {
         relayState = !relayState;
         previousLimitMillis = millis();
       }
@@ -359,16 +319,8 @@ void handleIO() {
 
     }
   }
-
-  // write to i/o
-  digitalWrite(GPIO_LED, !relayState);
-  digitalWrite(GPIO_RELAY, relayState);
-
-  previousButtonState = reading;
-}
-void monitorVoltageTemperature() {
-  unsigned long currentMillis = millis();
   
+  unsigned long currentMillis = millis();
   if (currentMillis - previousSampleMillis >= SAMPLE_INTERVAL) {
     previousSampleMillis = currentMillis;
 
@@ -412,14 +364,23 @@ void monitorVoltageTemperature() {
     
   }
 
+  // write to i/o
+  digitalWrite(GPIO_LED, !relayState);
+  digitalWrite(GPIO_RELAY, relayState);
+
+  previousButtonState = reading;
+}
+void monitorVoltageTemperature() {
+  unsigned long currentMillis = millis();
+
   // process results vs limits
-  if (averageVoltage < LOWER_VOLTAGE_LIMIT){
+  if (averageVoltage < LOWER_VOLTAGE_LIMIT && !manualOverride){
     if (currentMillis - previousLimitMillis >= LIMIT_DELAY) {
-      relayState = HIGH;
+      relayState = true;
     }
-  } else if (averageVoltage > UPPER_VOLTAGE_LIMIT) {
+  } else if (averageVoltage > UPPER_VOLTAGE_LIMIT && !manualOverride) {
     if (currentMillis - previousLimitMillis >= LIMIT_DELAY) {
-      relayState = LOW;
+      relayState = false;
     }
   } else {
     previousLimitMillis = currentMillis;
@@ -483,16 +444,69 @@ void handleDisplay(){
   }
 }
 void updateDisplay(){
-  int i1stColumn = 0; int i2ndColumn = 80;
+  int i1stColumn = 30; int i2ndColumn = 75;
   int i1stRow = 0; int i2ndRow = 10; int i3rdRow = 20;
   display.clearDisplay();
-  display.setCursor(i1stColumn, i1stRow); display.print("voltage: "); // (x,y)
+  display.setCursor(i1stColumn, i1stRow); display.print("b volt: "); // (x,y)
   display.setCursor(i2ndColumn, i1stRow); display.print(averageVoltage);
-  display.setCursor(i1stColumn, i2ndRow); display.print("temperature: ");
+  display.setCursor(i1stColumn, i2ndRow); display.print("r temp: ");
   display.setCursor(i2ndColumn, i2ndRow); display.print(averageTemperature);
-  display.setCursor(i1stColumn, i3rdRow); display.print("power source: ");
+  display.setCursor(i1stColumn, i3rdRow); display.print("source: ");
   display.setCursor(i2ndColumn, i3rdRow); if (relayState) display.print("aux"); else display.print("solar");
   display.display();
+}
+
+/* ota */
+//#define OTA_PASSWORD    "ESPsAreGreat!"
+bool OtaInProgress = false;
+int progress_last = 0;
+void setupOTA(){
+  // Port defaults to 8266
+  // ArduinoOTA.setPort(8266);
+  // Hostname defaults to esp8266-[ChipID]
+  ArduinoOTA.setHostname(DEVICE_ID.c_str());
+  // No authentication by default
+  //ArduinoOTA.setPassword((const char *)OTA_PASSWORD); // using password isnt supported in vscode...yet
+  ArduinoOTA.onStart([]() {
+    OtaInProgress = true;
+    webSocket_Server.onEvent(NULL);
+    webSocket_Client.onEvent(NULL);
+    LittleFS.end();
+    Serial.println("Start");
+  });
+  ArduinoOTA.onEnd([]() {
+    OtaInProgress = false;
+    Serial.println("\nEnd");
+    display.clearDisplay();
+    // (column, row)
+    display.setCursor(15, 0); display.print("update complete");
+    display.setCursor(10, 10); display.print("so long and thanks");
+    display.setCursor(10, 20); display.print("for all the fish!");
+    display.display();
+    ESP.restart();
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    if (progress != progress_last) {
+      progress_last = progress;
+      Serial.printf("Progress: %u%%\r\n", (progress / (total / 100)));
+      display.clearDisplay();
+      // (column, row)
+      display.setCursor(10, 0); display.print("updating firmware");
+      display.setCursor(5, 10); display.print("do not remove power!");
+      display.setCursor(20, 20); display.printf("Progress: %u%%\r\n", (progress / (total / 100)));
+      display.display();
+    }
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    OtaInProgress = false;
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed. Firewall issue?");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+    else if (error == OTA_END_ERROR) Serial.println("End Failed");
+  });
+  ArduinoOTA.begin();
 }
 
 /* websockets */
@@ -539,6 +553,7 @@ void broadcastUpdates() {
   jsonBuffer["data"]["relay_state"] = (bool)relayState; // our relay is off when high
   jsonBuffer["data"]["avg_voltage"] = (float)averageVoltage;
   jsonBuffer["data"]["avg_temperature"] = (float)averageTemperature;
+  jsonBuffer["data"]["manual_override"] = (bool)manualOverride;
 
   serializeJson(jsonBuffer,payload);
 
@@ -623,12 +638,23 @@ void parseWebSocketMessage(JsonDocument& jsonBuffer) {
     const char* child_state = jsonBuffer["child"]["state"];
       if(strcmp(child_id, "relay") == 0) {
         if(strcmp(child_state, "true") == 0) {
-          relayState = HIGH;
+          relayState = true;
           previousLimitMillis = millis();
         }
         if(strcmp(child_state, "false") == 0) {
-          relayState = LOW;
+          relayState = false;
           previousLimitMillis = millis();
+        }
+      }      
+      if(strcmp(child_id, "manual_override") == 0) {
+        if(strcmp(child_state, "true") == 0) {
+          manualOverride = true;
+        }
+        if(strcmp(child_state, "false") == 0) {
+          manualOverride = false;
+        }
+        if(strcmp(child_state, "toggle") == 0) {
+          manualOverride = !manualOverride;
         }
       }
     broadcastUpdates();
@@ -741,7 +767,7 @@ void loop() {
   //
   // handle logic
   //
-  if (OtaInProgress == false) {
+  if (!OtaInProgress) {
     monitorVoltageTemperature();
     //checkWifi();
     handleIO();

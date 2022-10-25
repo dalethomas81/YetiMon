@@ -182,6 +182,9 @@
       <div class="statuslabel">BATTERY VOLTAGE: </div><div class="status" id="STATUS_VOLTAGE_VALUE">loading...</div>
     </div>
     <div>
+      <div class="statuslabel">OVERRIDE: </div><div class="status" id="STATUS_OVERRIDE_STATE">loading...</div>
+    </div>
+    <div>
       <div class="statuslabel">HEARTBEAT: </div><div class="status" id="STATUS_HEARTBEAT_VALUE">loading...</div>
     </div>
   </div>
@@ -190,9 +193,9 @@
 
   <div class="midbuttons" style="position:absolute; bottom:80px;">
     <div style="width:100%;">
-      <button id='RELAY_BUTTON'
+      <button id='OVERRIDE_BUTTON'
       class="BTN_ORANGE"
-      style="width:100%;height:60px;visibility:hidden;">AUXILLARY POWER ENABLED</button>
+      style="width:100%;height:60px;">MANUAL OVERRIDE</button>
     </div>
     <div>
       <div style="width:50%;float:left;">
@@ -240,6 +243,7 @@
       document.getElementById('STATUS_HEARTBEAT_VALUE').innerHTML = obj.data.heartbeat_value;
       document.getElementById('STATUS_VOLTAGE_VALUE').innerHTML = obj.data.avg_voltage;
       document.getElementById('STATUS_TEMPERATURE_VALUE').innerHTML = obj.data.avg_temperature;
+      document.getElementById('STATUS_OVERRIDE_STATE').innerHTML = obj.data.manual_override;
 
       if (obj.data.button_state) {
         document.getElementById('STATUS_BUTTON_STATE').innerHTML = "released";
@@ -253,10 +257,10 @@
         document.getElementById('STATUS_RELAY_STATE').innerHTML = "solar";
       }
 
-      if (obj.data.relay_state) {
-        document.getElementById('RELAY_BUTTON').style.visibility='visible';
+      if (obj.data.manual_override) {
+        //document.getElementById('OVERRIDE_BUTTON').style.visibility='visible';
       } else {
-        document.getElementById('RELAY_BUTTON').style.visibility='hidden';
+        //document.getElementById('OVERRIDE_BUTTON').style.visibility='hidden';
       }
     }
   }
@@ -272,6 +276,13 @@
   function offButtonClicked()
   {   
     sendText('{"topic":"command","child":{"id":"relay","state":"false"}}');
+    //sendText('{"topic":"status"}');
+  }
+
+  document.getElementById('OVERRIDE_BUTTON').addEventListener('click', overrideButtonClicked);
+  function overrideButtonClicked()
+  {   
+    sendText('{"topic":"command","child":{"id":"manual_override","state":"toggle"}}');
     //sendText('{"topic":"status"}');
   }
 
