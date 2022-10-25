@@ -10,7 +10,7 @@ Video showing YetiMon installed: https://youtu.be/F3phBXkWJbo
 More info to come!  
 
 ## Build Pictures
-![functional-diagram](media/functional-diagram.jpg)  
+<img src="https://github.com/dalethomas81/YetiMon/blob/main/media/functional-diagram.jpeg" alt="menu" width="400"/>  
 
 ## 3D Printing
 Here are some of the files used to 3D print the casing.  
