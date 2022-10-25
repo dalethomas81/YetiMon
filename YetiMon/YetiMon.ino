@@ -370,7 +370,7 @@ void handleIO() {
 
   previousButtonState = reading;
 }
-void monitorVoltageTemperature() {
+void monitorIO() {
   unsigned long currentMillis = millis();
 
   // process results vs limits
@@ -768,9 +768,9 @@ void loop() {
   // handle logic
   //
   if (!OtaInProgress) {
-    monitorVoltageTemperature();
     //checkWifi();
     handleIO();
+    monitorIO();
     handleDisplay();
     handleHeartbeat();
     webSocket_Server.loop();
