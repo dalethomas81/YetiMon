@@ -6,6 +6,7 @@ This is useful in applications where you want to use only solar power but want t
 
 Video describing how YetiMon works: https://youtu.be/-7pzLf8jMJA  
 Video showing YetiMon installed: https://youtu.be/F3phBXkWJbo  
+Video showing how to calibrate YetiMon: https://youtu.be/rwJIze3Ulzg  
 
 More info to come!  
 

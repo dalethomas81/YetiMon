@@ -242,8 +242,8 @@ void setupWebserver() {
 #define AVG_VOLTAGE_SIZE              100     // size of the array for smoothing analog in
 #define AVG_TEMPERATURE_SIZE          100     // size of the array for smoothing analog in
 #define SAMPLE_INTERVAL               100     // how often to sample the voltage in ms
-#define UPPER_VOLTAGE_LIMIT           11.50   // charging - 11.27v is 32%
-#define LOWER_VOLTAGE_LIMIT           10.70   // discharging - 10.57v is about 6%
+#define UPPER_VOLTAGE_LIMIT           11.80   // switches to solar when battery rises to this voltage
+#define LOWER_VOLTAGE_LIMIT           10.80   // switches to auxillary when battery drops to this voltage
 #define LIMIT_DELAY                   10000   // how long to be under/over the limits before switching to aux in ms
 #define BROADCAST_RATE_LIMIT          2000    // limit the rate we can print/broadcast updates in ms
 #define BROADCAST_VOLT_TOLERANCE      0.01    // voltage tolerance to print/broadcast_
