@@ -11,14 +11,17 @@ Video showing how to calibrate YetiMon: https://youtu.be/rwJIze3Ulzg
 More info to come!  
 
 ## Build Pictures
+Money Shot  
+<img src="https://github.com/dalethomas81/YetiMon/blob/main/media/build/money-shot.jpeg" alt="menu" width="400"/>  
+
 Build  
 <img src="https://github.com/dalethomas81/YetiMon/blob/main/media/build/top-down-full-no-cover.jpeg" alt="menu" width="400"/>  
 
 Installed  
-<img src="https://github.com/dalethomas81/YetiMon/blob/main/media/build/installed-isometric.jpeg" alt="menu" width="400"/>  
+<img src="https://github.com/dalethomas81/YetiMon/blob/main/media/build/installed-cover-open.jpeg" alt="menu" width="400"/>  
 
 Display  
-<img src="https://github.com/dalethomas81/YetiMon/blob/main/media/build/oled-display.jpeg" alt="menu" width="400"/>  
+<img src="https://github.com/dalethomas81/YetiMon/blob/main/media/build/oled-display-boot.jpeg" alt="menu" width="400"/>  
 
 Functional Diagram  
 <img src="https://github.com/dalethomas81/YetiMon/blob/main/media/build/functional-diagram.jpeg" alt="menu" width="400"/>  
