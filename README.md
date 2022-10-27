@@ -12,10 +12,10 @@ More info to come!
 
 ## Build Pictures
 Build  
-<img src="https://github.com/dalethomas81/YetiMon/blob/main/media/top-down-full-no-cover.jpeg" alt="menu" width="400"/>  
+<img src="https://github.com/dalethomas81/YetiMon/blob/main/media/build/top-down-full-no-cover.jpeg" alt="menu" width="400"/>  
 
 Installed  
-<img src="https://github.com/dalethomas81/YetiMon/blob/main/media/installed-isometric.jpeg" alt="menu" width="400"/>  
+<img src="https://github.com/dalethomas81/YetiMon/blob/main/media/build/installed-isometric.jpeg" alt="menu" width="400"/>  
 
 Display  
 <img src="https://github.com/dalethomas81/YetiMon/blob/main/media/build/oled-display.jpeg" alt="menu" width="400"/>  
