@@ -645,6 +645,10 @@ void parseWebSocketMessage(JsonDocument& jsonBuffer) {
           relayState = false;
           previousLimitMillis = millis();
         }
+        if(strcmp(child_state, "toggle") == 0) {
+          relayState = !relayState;
+          previousLimitMillis = millis();
+        }
       }      
       if(strcmp(child_id, "manual_override") == 0) {
         if(strcmp(child_state, "true") == 0) {
