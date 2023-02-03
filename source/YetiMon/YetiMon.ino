@@ -32,6 +32,8 @@
 #include <ESPAsyncWebServer.h>    // https://github.com/me-no-dev/ESPAsyncWebServer
 #include <WebSocketsServer.h>     // https://github.com/Links2004/arduinoWebSockets
 #include <ESPAsyncWiFiManager.h>  // https://github.com/alanswx/ESPAsyncWiFiManager
+                                  // https://github.com/me-no-dev/ESPAsyncTCP
+                                  // https://github.com/adafruit/Adafruit_SSD1306
 #include <WebSocketsClient.h>
 #include <ArduinoOTA.h>
 #include <StreamString.h>
