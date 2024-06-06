@@ -240,8 +240,8 @@
       //document.getElementById('STATUS_BUTTON_STATE').innerHTML = obj.data.button_state;
       //document.getElementById('STATUS_RELAY_STATE').innerHTML = obj.data.relay_state;
       document.getElementById('STATUS_HEARTBEAT_VALUE').innerHTML = obj.data.heartbeat_value;
-      document.getElementById('STATUS_VOLTAGE_VALUE').innerHTML = obj.data.avg_voltage;
-      document.getElementById('STATUS_TEMPERATURE_VALUE').innerHTML = obj.data.avg_temperature;
+      document.getElementById('STATUS_VOLTAGE_VALUE').innerHTML = obj.data.avg_voltage.toFixed(2);
+      document.getElementById('STATUS_TEMPERATURE_VALUE').innerHTML = obj.data.avg_temperature.toFixed(2);
       document.getElementById('STATUS_OVERRIDE_STATE').innerHTML = obj.data.manual_override;
 
       if (obj.data.button_state) {
