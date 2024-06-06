@@ -523,7 +523,7 @@ void setupOTA(){
 }
 
 /* websockets */
-#define PAYLOAD_SIZE_IN 128
+#define PAYLOAD_SIZE_IN 200
 #define PAYLOAD_SIZE_OUT 200
 enum SettingsUpdateType{
   SaveSuccess, SaveFailure, SettingsBroadcast
@@ -718,6 +718,9 @@ void parseWebSocketMessage(JsonDocument& jsonBuffer) {
       }     
       if(strcmp(child_id, "save_settings") == 0) {
         if(strcmp(child_state, "true") == 0) {
+          voltageUpperLimit = (double)jsonBuffer["child"]["data"]["upper_limit"];
+          voltageLowerLimit = (double)jsonBuffer["child"]["data"]["lower_limit"];
+          voltageLimitDelay = (long long)jsonBuffer["child"]["data"]["auxillary_delay"];
           if (saveConfig()){
             broadcastSettings(SaveSuccess);
           } else {
