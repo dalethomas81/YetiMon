@@ -525,6 +525,9 @@ void setupOTA(){
 /* websockets */
 #define PAYLOAD_SIZE_IN 128
 #define PAYLOAD_SIZE_OUT 200
+enum SettingsUpdateType{
+  SaveSuccess, SaveFailure, SettingsBroadcast
+};
 void parseWebSocketMessage(JsonDocument& jsonBuffer); // need prototype because complex argument and arduino gets confused
 void setupWebsocket() {
   webSocket_Server.begin();
@@ -548,7 +551,7 @@ void broadcastUpdates() {
       "DEVICE_ID": "ESP-xxxxxx",
       "HEARTBEAT_VALUE": 100,
       "BUTTON_STATE": true,
-      "RELAY_STATE": true,
+      "RELAY_STATE": true
     }
   }
   */
@@ -567,6 +570,45 @@ void broadcastUpdates() {
   jsonBuffer["data"]["avg_voltage"] = (float)averageVoltage;
   jsonBuffer["data"]["avg_temperature"] = (float)averageTemperature;
   jsonBuffer["data"]["manual_override"] = (bool)manualOverride;
+
+  serializeJson(jsonBuffer,payload);
+
+  webSocket_Server.broadcastTXT(payload);
+  webSocket_Client.sendTXT(payload);
+}
+void broadcastSettings(SettingsUpdateType UpdateType = SettingsBroadcast) {
+  /*
+  {
+  "topic":"settings",
+    "save_status": "save_successful", | "save_failed", | "settings_broadcast",
+    "data": {
+      "upper_limit": 11.00,
+      "lower_limit": 10.00,
+      "delay": 10000
+    }
+  }
+  */
+  DynamicJsonDocument  jsonBuffer(PAYLOAD_SIZE_OUT); // https://arduinojson.org/v6/assistant/
+
+  StreamString payload;
+  
+  jsonBuffer["topic"] = "settings";
+
+  switch(UpdateType){
+    case SaveSuccess:
+      jsonBuffer["settings_status"] = "save_successful";
+      break;
+    case SaveFailure:
+      jsonBuffer["settings_status"] = "save_failed";
+      break;
+    case SettingsBroadcast:
+      jsonBuffer["settings_status"] = "settings_broadcast";
+      break;
+  }
+ 
+  jsonBuffer["data"]["upper_limit"] = (double)voltageUpperLimit;
+  jsonBuffer["data"]["lower_limit"] = (double)voltageLowerLimit;
+  jsonBuffer["data"]["auxillary_delay"] = (long long)voltageLimitDelay;
 
   serializeJson(jsonBuffer,payload);
 
@@ -673,11 +715,23 @@ void parseWebSocketMessage(JsonDocument& jsonBuffer) {
         if(strcmp(child_state, "toggle") == 0) {
           manualOverride = !manualOverride;
         }
+      }     
+      if(strcmp(child_id, "save_settings") == 0) {
+        if(strcmp(child_state, "true") == 0) {
+          if (saveConfig()){
+            broadcastSettings(SaveSuccess);
+          } else {
+            broadcastSettings(SaveFailure);
+          }
+        }
       }
     broadcastUpdates();
   }
   if(strcmp(topic, "status") == 0) {
     broadcastUpdates();
+  }
+  if(strcmp(topic, "settings_status") == 0) {
+    broadcastSettings();
   }
 }
 

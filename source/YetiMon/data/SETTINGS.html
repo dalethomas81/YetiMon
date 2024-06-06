@@ -167,11 +167,25 @@
     <div>
       <div class="statuslabel">DEVICE ID: </div><div class="status" id="STATUS_DEVICE_ID">loading...</div>
     </div>
+    <div>
+      <div class="statuslabel">Upper Voltage Limit (v): </div><div class="status" id="UPPER_VOLTAGE_LIMIT">loading...</div>
+    </div>
+    <div>
+      <div class="statuslabel">Lower Voltage Limit (v): </div><div class="status" id="LOWER_VOLTAGE_LIMIT">loading...</div>
+    </div>
+    <div>
+      <div class="statuslabel">Auxillary Delay (ms): </div><div class="status" id="AUXILLARY_DELAY">loading...</div>
+    </div>
   </div>
 
-  <hr style="position:absolute; bottom:265px; width: 80%; margin-left: 10%; color:lightgray;">
+  <hr style="position:absolute; bottom:205px; width: 80%; margin-left: 10%; color:lightgray;">
 
   <div class="midbuttons" style="position:absolute; bottom:80px;">
+    <div style="width:100%;">
+      <button id='SAVE_BUTTON'
+      class="BTN_ORANGE"
+      style="width:100%;height:60px;">SAVE</button>
+    </div>
     <div style="width:100%;">
       <button onclick="window.location.href='/main';"
       id='MAIN_BUTTON'
@@ -191,7 +205,7 @@
     //Socket = new WebSocket('ws://192.168.0.19:81/');
     Socket = new WebSocket('ws://' + window.location.hostname + ':81/');
     Socket.onmessage = function(event) { processReceivedCommand(event); };
-    //Socket.onopen = function(event) {sendText('{"topic":"status"}');}; // get the status after it has connected
+    Socket.onopen = function(event) {sendText('{"topic":"settings_status"}');}; // get the status after it has connected
     //Socket.onclose = function(event) {init();};
   }
 
@@ -201,6 +215,26 @@
     if (obj.topic == "status") {
       document.getElementById('STATUS_DEVICE_ID').innerHTML = obj.data.device_id;
     }
+    if (obj.topic == "settings") {
+      if (obj.settings_status == "save_successful") {
+        alert("Settings saved!");
+      } else if (obj.settings_status == "save_failed") {
+        alert("Save failed.");
+      } else if (obj.settings_status == "settings_broadcast") {
+        // do nothing?
+      }
+      document.getElementById('UPPER_VOLTAGE_LIMIT').innerHTML = obj.data.upper_limit;
+      document.getElementById('LOWER_VOLTAGE_LIMIT').innerHTML = obj.data.lower_limit;
+      document.getElementById('AUXILLARY_DELAY').innerHTML = obj.data.auxillary_delay;
+    }
+
+  }
+
+  document.getElementById('SAVE_BUTTON').addEventListener('click', overrideButtonClicked);
+  function overrideButtonClicked()
+  {   
+    sendText('{"topic":"command","child":{"id":"save_settings","state":"true"}}');
+    //alert("Settings saved!");
   }
 
   function sendText(data)
