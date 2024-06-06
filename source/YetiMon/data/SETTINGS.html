@@ -159,33 +159,13 @@
 </head>
 <body>
 
-  <div id='main'>
-    <h2 style="text-align: center; color:#777777">MAIN</h2>
-    <!-- <p class="debug_raw">Received data = <span style="word-wrap:break-word"; id='rd'>---</span> </p> -->
-    <!-- <p style="position:absolute; top:0;" id="REFRESH_TIME">0</p> -->
+  <div id='settings'>
+    <h2 style="text-align: center; color:#777777">SETTINGS</h2>
   </div>
 
   <div class="midbuttons" style="position:absolute; top:80px;" >
     <div>
       <div class="statuslabel">DEVICE ID: </div><div class="status" id="STATUS_DEVICE_ID">loading...</div>
-    </div>
-    <div>
-      <div class="statuslabel">BUTTON STATE: </div><div class="status" id="STATUS_BUTTON_STATE">loading...</div>
-    </div>
-    <div>
-      <div class="statuslabel">POWER SOURCE: </div><div class="status" id="STATUS_RELAY_STATE">loading...</div>
-    </div>
-    <div>
-      <div class="statuslabel">TEMPERATURE: </div><div class="status" id="STATUS_TEMPERATURE_VALUE">loading...</div>
-    </div>
-    <div>
-      <div class="statuslabel">VOLTAGE: </div><div class="status" id="STATUS_VOLTAGE_VALUE">loading...</div>
-    </div>
-    <div>
-      <div class="statuslabel">OVERRIDE: </div><div class="status" id="STATUS_OVERRIDE_STATE">loading...</div>
-    </div>
-    <div>
-      <div class="statuslabel">HEARTBEAT: </div><div class="status" id="STATUS_HEARTBEAT_VALUE">loading...</div>
     </div>
   </div>
 
@@ -193,27 +173,10 @@
 
   <div class="midbuttons" style="position:absolute; bottom:80px;">
     <div style="width:100%;">
-      <button id='OVERRIDE_BUTTON'
-      class="BTN_ORANGE"
-      style="width:100%;height:60px;">MANUAL OVERRIDE</button>
-    </div>
-    <div>
-      <div style="width:50%;float:left;">
-        <button id='ON_BUTTON'
-        class="BTN_GREEN"
-        style="width:100%;height:60px;">AUXILLARY</button>
-      </div>
-      <div style="width:50%;float:right;">
-        <button id='OFF_BUTTON'
-        class="BTN_RED"
-        style="width:100%;height:60px;">SOLAR</button>
-      </div>
-    </div>
-    <div style="width:100%;">
-      <button onclick="window.location.href='/settings';"
-      id='SETTINGS_BUTTON'
+      <button onclick="window.location.href='/main';"
+      id='MAIN_BUTTON'
       class="BTN_GREY"
-      style="width:100%;height:60px;">SETTINGS</button>
+      style="width:100%;height:60px;">MAIN</button>
     </div>
   </div>
 
@@ -237,52 +200,7 @@
     var obj = JSON.parse(evt.data);
     if (obj.topic == "status") {
       document.getElementById('STATUS_DEVICE_ID').innerHTML = obj.data.device_id;
-      //document.getElementById('STATUS_BUTTON_STATE').innerHTML = obj.data.button_state;
-      //document.getElementById('STATUS_RELAY_STATE').innerHTML = obj.data.relay_state;
-      document.getElementById('STATUS_HEARTBEAT_VALUE').innerHTML = obj.data.heartbeat_value;
-      document.getElementById('STATUS_VOLTAGE_VALUE').innerHTML = obj.data.avg_voltage;
-      document.getElementById('STATUS_TEMPERATURE_VALUE').innerHTML = obj.data.avg_temperature;
-      document.getElementById('STATUS_OVERRIDE_STATE').innerHTML = obj.data.manual_override;
-
-      if (obj.data.button_state) {
-        document.getElementById('STATUS_BUTTON_STATE').innerHTML = "released";
-      } else {
-        document.getElementById('STATUS_BUTTON_STATE').innerHTML = "pressed";
-      }
-
-      if (obj.data.relay_state) {
-        document.getElementById('STATUS_RELAY_STATE').innerHTML = "auxillary";
-      } else {
-        document.getElementById('STATUS_RELAY_STATE').innerHTML = "solar";
-      }
-
-      if (obj.data.manual_override) {
-        //document.getElementById('OVERRIDE_BUTTON').style.visibility='visible';
-      } else {
-        //document.getElementById('OVERRIDE_BUTTON').style.visibility='hidden';
-      }
     }
-  }
-  
-  document.getElementById('ON_BUTTON').addEventListener('click', onButtonClicked);
-  function onButtonClicked()
-  {
-    sendText('{"topic":"command","child":{"id":"relay","state":"true"}}');
-    //sendText('{"topic":"status"}');
-  }
-
-  document.getElementById('OFF_BUTTON').addEventListener('click', offButtonClicked);
-  function offButtonClicked()
-  {   
-    sendText('{"topic":"command","child":{"id":"relay","state":"false"}}');
-    //sendText('{"topic":"status"}');
-  }
-
-  document.getElementById('OVERRIDE_BUTTON').addEventListener('click', overrideButtonClicked);
-  function overrideButtonClicked()
-  {   
-    sendText('{"topic":"command","child":{"id":"manual_override","state":"toggle"}}');
-    //sendText('{"topic":"status"}');
   }
 
   function sendText(data)

@@ -213,6 +213,12 @@ void setupWebserver() {
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){ // https://github.com/me-no-dev/ESPAsyncWebServer
     request->send(LittleFS, "/MAIN.html");
   });
+  server.on("/main", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(LittleFS, "/MAIN.html");
+  });
+  server.on("/settings", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(LittleFS, "/SETTINGS.html");
+  });
   server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(LittleFS, "/favicon.ico");
   });

@@ -36,7 +36,7 @@ Web app
 
 The "chassis" of YetiMon is just the factory cover that came with the Yeti X and is normally removed when you install a Yeti Link. What I did was use this as the chassis for YetiMon and 3D printed a cover that I made (link [here](source/cad/fusion-360)).  
 
-The cover is qutie large and had to be printed vertically on my Ender 5.
+The cover is quite large and had to be printed vertically on my Ender 5.
 <img src="https://github.com/dalethomas81/YetiMon/blob/main/media/3d-printing/chassis-vertical-cura.png" alt="menu" width="400"/>  
 
 Additionally, I 3D printed a case for the oled display. I got this design off of Thingiverse. Hopefully the link still exist at the time of you reading this. If not, let me know and I will design one. [Here](https://www.thingiverse.com/thing:2176764) is the link.  
