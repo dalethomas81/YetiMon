@@ -21,6 +21,8 @@
 */
 /*************Board settings************
 
+    Board Manager: http://arduino.esp8266.com/stable/package_esp8266com_index.json
+
     NodeMCU:
     "board": "esp8266:esp8266:nodemcuv2",
     "configuration": "xtal=160,vt=flash,exception=legacy,ssl=all,eesz=4M1M,led=2,ip=lm2f,dbg=Disabled,lvl=None____,wipe=none,baud=115200",
@@ -28,7 +30,7 @@
 *****************************************/
 
 #include <ArduinoJson.h>
-#include "LittleFS.h"             // need the upload tool here https://github.com/earlephilhower/arduino-esp8266littlefs-plugin
+#include "LittleFS.h"             // https://github.com/earlephilhower/arduino-littlefs-upload (this gets placed in the \.arduinoIDE\plugins folder)
 #include <ESPAsyncWebServer.h>    // https://github.com/me-no-dev/ESPAsyncWebServer
 #include <WebSocketsServer.h>     // https://github.com/Links2004/arduinoWebSockets
 #include <ESPAsyncWiFiManager.h>  // https://github.com/alanswx/ESPAsyncWiFiManager
@@ -211,6 +213,12 @@ void setupWebserver() {
   server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){ // https://github.com/me-no-dev/ESPAsyncWebServer
     request->send(LittleFS, "/MAIN.html");
   });
+  server.on("/main", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(LittleFS, "/MAIN.html");
+  });
+  server.on("/settings", HTTP_GET, [](AsyncWebServerRequest *request){
+    request->send(LittleFS, "/SETTINGS.html");
+  });
   server.on("/favicon.ico", HTTP_GET, [](AsyncWebServerRequest *request){
     request->send(LittleFS, "/favicon.ico");
   });
@@ -244,12 +252,9 @@ void setupWebserver() {
 #define AVG_VOLTAGE_SIZE              100     // size of the array for smoothing analog in
 #define AVG_TEMPERATURE_SIZE          100     // size of the array for smoothing analog in
 #define SAMPLE_INTERVAL               100     // how often to sample the voltage in ms
-#define UPPER_VOLTAGE_LIMIT           11.80   // switches to solar when battery rises to this voltage
-#define LOWER_VOLTAGE_LIMIT           10.80   // switches to auxillary when battery drops to this voltage
-#define LIMIT_DELAY                   10000   // how long to be under/over the limits before switching to aux in ms
 #define BROADCAST_RATE_LIMIT          2000    // limit the rate we can print/broadcast updates in ms
-#define BROADCAST_VOLT_TOLERANCE      0.01    // voltage tolerance to print/broadcast_
-#define BROADCAST_TEMP_TOLERANCE      0.01    // voltage tolerance to print/broadcast
+#define BROADCAST_VOLT_TOLERANCE      0.01    // voltage tolerance to print/broadcast
+#define BROADCAST_TEMP_TOLERANCE      0.01    // temp tolerance to print/broadcast
 #define DEBOUNCE_DELAY                50      // the debounce time for hardware buttons
 #define MAXDO                         D6
 #define MAXCS                         D8      // !!!!! WARNING !!!! pull this bad boy low with a ~10K resistor or the ESP will not boot.
@@ -261,9 +266,12 @@ int temperatureArrayIndex = 0;
 float previousBroadcastedTemperature, totalTemperature, averageTemperature;
 int buttonState = true; 
 int previousButtonState = buttonState;
-bool relayState = false;                        // our relay is off when false
+bool relayState = false;  // our relay is off when false
 bool previousRelayState = relayState;
 unsigned long lastDebounceTime = 0;
+double voltageUpperLimit = 11.80; // switches to solar when battery rises to this voltage
+double voltageLowerLimit = 10.80; // switches to auxillary when battery drops to this voltage
+long long voltageLimitDelay = 10000; // how long to be under/over the limits before switching to aux in ms
 int voltageSensorValue = 0;
 float voltageReadings[AVG_VOLTAGE_SIZE] = {0.0};
 int voltageArrayIndex = 0;
@@ -326,6 +334,7 @@ void handleIO() {
   if (currentMillis - previousSampleMillis >= SAMPLE_INTERVAL) {
     previousSampleMillis = currentMillis;
 
+    // TODO scaling should either be configurable or dynamic. can we detect the board type dynamically??
     // get voltage
     voltageSensorValue = analogRead(GPIO_VOLTAGE_INPUT);
     // voltageSensorValue * scaled-input-to-controller * scaled-input-to-voltage-divider(this term from spreadsheet)
@@ -341,6 +350,7 @@ void handleIO() {
       voltageArrayIndex++;
     }
     totalVoltage = 0.0;
+    // TODO this average should grow with the number of samples if we want to have a correct average for the first n = AVG_VOLATAGE_SIZE samples
     for (int i = 0; i <= AVG_VOLTAGE_SIZE - 1; i++){
       totalVoltage = totalVoltage + voltageReadings[i];
     }
@@ -359,6 +369,7 @@ void handleIO() {
       temperatureArrayIndex++;
     }
     totalTemperature = 0.0;
+    // TODO this average should grow with the number of samples if we want to have a correct average for the first n = AVG_TEMPERATURE_SIZE samples
     for (int i = 0; i <= AVG_TEMPERATURE_SIZE - 1; i++){
       totalTemperature = totalTemperature + temperatureReadings[i];
     }
@@ -376,12 +387,12 @@ void monitorIO() {
   unsigned long currentMillis = millis();
 
   // process results vs limits
-  if (averageVoltage < LOWER_VOLTAGE_LIMIT && !manualOverride){
-    if (currentMillis - previousLimitMillis >= LIMIT_DELAY) {
+  if ((double)averageVoltage < voltageLowerLimit && !manualOverride){
+    if (currentMillis - previousLimitMillis >= voltageLimitDelay) {
       relayState = true;
     }
-  } else if (averageVoltage > UPPER_VOLTAGE_LIMIT && !manualOverride) {
-    if (currentMillis - previousLimitMillis >= LIMIT_DELAY) {
+  } else if ((double)averageVoltage > voltageUpperLimit && !manualOverride) {
+    if (currentMillis - previousLimitMillis >= voltageLimitDelay) {
       relayState = false;
     }
   } else {
@@ -512,8 +523,11 @@ void setupOTA(){
 }
 
 /* websockets */
-#define PAYLOAD_SIZE_IN 128
+#define PAYLOAD_SIZE_IN 200
 #define PAYLOAD_SIZE_OUT 200
+enum SettingsUpdateType{
+  SaveSuccess, SaveFailure, SettingsBroadcast
+};
 void parseWebSocketMessage(JsonDocument& jsonBuffer); // need prototype because complex argument and arduino gets confused
 void setupWebsocket() {
   webSocket_Server.begin();
@@ -537,7 +551,7 @@ void broadcastUpdates() {
       "DEVICE_ID": "ESP-xxxxxx",
       "HEARTBEAT_VALUE": 100,
       "BUTTON_STATE": true,
-      "RELAY_STATE": true,
+      "RELAY_STATE": true
     }
   }
   */
@@ -556,6 +570,45 @@ void broadcastUpdates() {
   jsonBuffer["data"]["avg_voltage"] = (float)averageVoltage;
   jsonBuffer["data"]["avg_temperature"] = (float)averageTemperature;
   jsonBuffer["data"]["manual_override"] = (bool)manualOverride;
+
+  serializeJson(jsonBuffer,payload);
+
+  webSocket_Server.broadcastTXT(payload);
+  webSocket_Client.sendTXT(payload);
+}
+void broadcastSettings(SettingsUpdateType UpdateType = SettingsBroadcast) {
+  /*
+  {
+  "topic":"settings",
+    "save_status": "save_successful", | "save_failed", | "settings_broadcast",
+    "data": {
+      "upper_limit": 11.00,
+      "lower_limit": 10.00,
+      "delay": 10000
+    }
+  }
+  */
+  DynamicJsonDocument  jsonBuffer(PAYLOAD_SIZE_OUT); // https://arduinojson.org/v6/assistant/
+
+  StreamString payload;
+  
+  jsonBuffer["topic"] = "settings";
+
+  switch(UpdateType){
+    case SaveSuccess:
+      jsonBuffer["settings_status"] = "save_successful";
+      break;
+    case SaveFailure:
+      jsonBuffer["settings_status"] = "save_failed";
+      break;
+    case SettingsBroadcast:
+      jsonBuffer["settings_status"] = "settings_broadcast";
+      break;
+  }
+ 
+  jsonBuffer["data"]["upper_limit"] = (double)voltageUpperLimit;
+  jsonBuffer["data"]["lower_limit"] = (double)voltageLowerLimit;
+  jsonBuffer["data"]["auxillary_delay"] = (long long)voltageLimitDelay;
 
   serializeJson(jsonBuffer,payload);
 
@@ -662,11 +715,26 @@ void parseWebSocketMessage(JsonDocument& jsonBuffer) {
         if(strcmp(child_state, "toggle") == 0) {
           manualOverride = !manualOverride;
         }
+      }     
+      if(strcmp(child_id, "save_settings") == 0) {
+        if(strcmp(child_state, "true") == 0) {
+          voltageUpperLimit = (double)jsonBuffer["child"]["data"]["upper_limit"];
+          voltageLowerLimit = (double)jsonBuffer["child"]["data"]["lower_limit"];
+          voltageLimitDelay = (long long)jsonBuffer["child"]["data"]["auxillary_delay"];
+          if (saveConfig()){
+            broadcastSettings(SaveSuccess);
+          } else {
+            broadcastSettings(SaveFailure);
+          }
+        }
       }
     broadcastUpdates();
   }
   if(strcmp(topic, "status") == 0) {
     broadcastUpdates();
+  }
+  if(strcmp(topic, "settings_status") == 0) {
+    broadcastSettings();
   }
 }
 
@@ -708,9 +776,16 @@ bool loadConfig() {
   strcpy(ws_server_port, c_ws_server_port);
   strcpy(ws_server_url, c_ws_server_url);
 
+  voltageUpperLimit = doc["voltage"]["upper_limit"] | 11.80;
+  voltageLowerLimit = doc["voltage"]["lower_limit"] | 10.80;
+  voltageLimitDelay = doc["voltage"]["delay"] | 10000;
+
   Serial.print("ws_server_ip: "); Serial.println(ws_server_ip);
   Serial.print("ws_server_port: "); Serial.println(ws_server_port);
   Serial.print("ws_server_url: "); Serial.println(ws_server_url);
+  Serial.print("voltageUpperLimit: "); Serial.println(voltageUpperLimit);
+  Serial.print("voltageLowerLimit: "); Serial.println(voltageLowerLimit);
+  Serial.print("voltageLimitDelay: "); Serial.println(voltageLimitDelay);
 
   return true;
 }
@@ -721,6 +796,10 @@ bool saveConfig() {
   doc["webserver"]["ip"] = ws_server_ip;
   doc["webserver"]["port"] = ws_server_port;
   doc["webserver"]["url"] = ws_server_url;
+
+  doc["voltage"]["upper_limit"] = voltageUpperLimit;
+  doc["voltage"]["lower_limit"] = voltageLowerLimit;
+  doc["voltage"]["delay"] = voltageLimitDelay;
 
   File configFile = LittleFS.open("/config.json", "w");
   if (!configFile) {

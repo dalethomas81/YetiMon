@@ -3,5 +3,10 @@
 		"ip": "192.168.1.94 ",
 		"port": "1880",
 		"url": "/ws/esp"
+	},
+	"voltage":{
+		"upper_limit": 11.79,
+		"lower_limit": 10.79,
+		"delay": 10001
 	}
 }
